@@ -8,6 +8,7 @@ interface HeaderProps {
   setIsAdmin: (val: boolean) => void;
   openConfigModal: () => void;
   verificationCount: number;
+  hasGeminiKey?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
   setIsAdmin,
   openConfigModal,
   verificationCount,
+  hasGeminiKey = false,
 }) => {
   return (
     <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
@@ -131,13 +133,19 @@ export const Header: React.FC<HeaderProps> = ({
               {isAdmin ? '🛡️ Admin Mode' : '👤 Citizen View'}
             </button>
 
-            {/* Config & Environment Settings Modal Button */}
+            {/* AI Status Pill & Config Button */}
             <button
               onClick={openConfigModal}
-              title="Configure n8n Webhook & Supabase Endpoints"
-              className="p-2 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-colors border border-slate-800"
+              title="Configure Gemini AI Key & Supabase Endpoints"
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                hasGeminiKey
+                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
+                  : 'bg-amber-950/30 border-amber-500/30 text-amber-300 hover:bg-amber-900/30'
+              }`}
             >
-              <Sliders className="w-4 h-4" />
+              <span className={`w-2 h-2 rounded-full ${hasGeminiKey ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span className="hidden md:inline">{hasGeminiKey ? 'Gemini 3.6 Active' : 'Setup AI Keys'}</span>
+              <Sliders className="w-3.5 h-3.5 ml-0.5 opacity-80" />
             </button>
           </nav>
         </div>

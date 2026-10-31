@@ -5,22 +5,31 @@ let cachedClient: SupabaseClient | null = null;
 let lastUrl = '';
 let lastKey = '';
 
+export const resetSupabaseClient = () => {
+  cachedClient = null;
+  lastUrl = '';
+  lastKey = '';
+};
+
 export const getSupabaseClient = (): SupabaseClient | null => {
   const config = getAppConfig();
-  if (!config.supabaseUrl || !config.supabaseAnonKey || config.supabaseUrl.includes('your-project')) {
+  const cleanUrl = (config.supabaseUrl || '').trim();
+  const cleanKey = (config.supabaseAnonKey || '').trim();
+
+  if (!cleanUrl || !cleanKey || cleanUrl.includes('your-project')) {
     return null;
   }
 
-  if (cachedClient && lastUrl === config.supabaseUrl && lastKey === config.supabaseAnonKey) {
+  if (cachedClient && lastUrl === cleanUrl && lastKey === cleanKey) {
     return cachedClient;
   }
 
   try {
-    cachedClient = createClient(config.supabaseUrl, config.supabaseAnonKey, {
+    cachedClient = createClient(cleanUrl, cleanKey, {
       auth: { persistSession: false },
     });
-    lastUrl = config.supabaseUrl;
-    lastKey = config.supabaseAnonKey;
+    lastUrl = cleanUrl;
+    lastKey = cleanKey;
     return cachedClient;
   } catch (err) {
     console.warn('Failed to initialize Supabase client:', err);

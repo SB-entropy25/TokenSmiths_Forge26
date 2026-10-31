@@ -100,7 +100,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onClose, onSaved }) =>
           <div>
             <label className="text-slate-300 font-semibold block mb-1 flex items-center space-x-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Google Gemini API Key (Multimodal AI Vision & Danger Triage)</span>
+              <span>Google Gemini API Key (Gemini 3.6 Flash Multimodal Vision)</span>
             </label>
             <input
               type="password"
@@ -110,7 +110,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onClose, onSaved }) =>
               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:ring-1 focus:ring-emerald-500"
             />
             <span className="text-[10px] text-slate-500 block mt-1">
-              Get free key instantly at <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="text-emerald-400 underline">aistudio.google.com</a>. (If left blank, intelligent local heuristic is used).
+              Supports Gemini 3.6 Flash from <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="text-emerald-400 underline">aistudio.google.com</a>.
             </span>
           </div>
 
@@ -199,11 +199,28 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({ onClose, onSaved }) =>
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Gemini 1.5 Flash Vision:</span>
-                  <span className={testResult.geminiAi.status === 'connected' ? 'text-emerald-400 font-bold' : 'text-purple-400 font-bold'}>
-                    {testResult.geminiAi.status === 'connected' ? '✓ Verified Active' : 'Offline Heuristic'}
+                  <span>Gemini 3.6 Flash Vision:</span>
+                  <span
+                    className={
+                      testResult.geminiAi.status === 'connected'
+                        ? 'text-emerald-400 font-bold'
+                        : testResult.geminiAi.status === 'error'
+                        ? 'text-red-400 font-bold'
+                        : 'text-purple-400 font-bold'
+                    }
+                  >
+                    {testResult.geminiAi.status === 'connected'
+                      ? '✓ Verified Active'
+                      : testResult.geminiAi.status === 'error'
+                      ? '✕ Verification Error'
+                      : 'Offline Heuristic'}
                   </span>
                 </div>
+                {testResult.geminiAi.status === 'error' && (
+                  <p className="text-[10px] text-red-400/90 bg-red-950/40 p-1.5 rounded border border-red-500/20">
+                    {testResult.geminiAi.message}
+                  </p>
+                )}
               </div>
             </div>
           )}

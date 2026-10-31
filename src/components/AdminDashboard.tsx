@@ -174,7 +174,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
           {/* Gemini AI Vision */}
           <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
             <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-slate-300">3. Gemini 1.5 Flash Vision</span>
+              <span className="font-semibold text-slate-300">3. Gemini 3.6 Flash Vision</span>
               {health?.geminiAi.status === 'connected' ? (
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center space-x-1">
                   <Check className="w-3 h-3" />
@@ -529,7 +529,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
             <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700 space-y-2 text-xs">
               <div className="flex items-center space-x-2 text-emerald-400 font-bold">
                 <Sparkles className="w-4 h-4" />
-                <span>Gemini 1.5 Flash Vision Analysis</span>
+                <span>Gemini 3.6 Flash Vision Analysis</span>
               </div>
               <p className="text-slate-300">{selectedCluster.tickets?.[0]?.ai_summary || 'Analyzed and triaged.'}</p>
 

@@ -2,14 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { Camera, MapPin, Upload, AlertCircle, Check, Loader2, Sparkles, Navigation, ShieldCheck, Eye, Layers, Key, CheckCircle } from 'lucide-react';
 import { IssueCategory, SubmissionPayload, SubmissionResponse } from '../types';
 import { submitCivicReport } from '../services/api';
-import { getAppConfig } from '../config/env';
+import { getAppConfig, AppConfig } from '../config/env';
 
 interface ReportFormProps {
   onSuccess: (response: SubmissionResponse) => void;
+  config?: AppConfig;
+  onOpenConfig?: () => void;
 }
 
-export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess }) => {
+export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpenConfig }) => {
   const [category, setCategory] = useState<IssueCategory>('pothole');
+  const activeGeminiKey = (config?.geminiApiKey || getAppConfig().geminiApiKey || '').trim();
   const [description, setDescription] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -105,9 +108,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess }) => {
     setSubmitting(true);
     setInspectionStage(1);
 
-    const stepTimer1 = setTimeout(() => setInspectionStage(2), 600);
-    const stepTimer2 = setTimeout(() => setInspectionStage(3), 1300);
-    const stepTimer3 = setTimeout(() => setInspectionStage(4), 2000);
+    const stepTimer1 = setTimeout(() => setInspectionStage(2), 500);
+    const stepTimer2 = setTimeout(() => setInspectionStage(3), 1100);
 
     try {
       const payload: SubmissionPayload = {
@@ -124,18 +126,18 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess }) => {
       };
 
       const result = await submitCivicReport(payload);
+      setInspectionStage(4);
 
-      // Short delay to let citizen see the final check complete
-      setTimeout(() => {
-        setSubmitting(false);
-        onSuccess(result);
-      }, 2500);
+      // Conclude immediately without delaying the user
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
+      setSubmitting(false);
+      onSuccess(result);
     } catch (err: any) {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
-      clearTimeout(stepTimer3);
       setSubmitting(false);
-      setErrorMessage(err.message || 'Submission failed. Please check network.');
+      setErrorMessage(err.message || 'Submission failed. Please check your network or API keys.');
     }
   };
 
@@ -154,16 +156,20 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess }) => {
 
           {/* AI Vision Status Indicator */}
           <div className="mt-3.5">
-            {getAppConfig().geminiApiKey ? (
-              <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-xs font-semibold">
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>🟢 Gemini 1.5 Flash Vision Active: Strict Multimodal Verification Enabled</span>
+            {activeGeminiKey ? (
+              <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-semibold">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span>🟢 Gemini 3.6 Flash Vision Active: Strict Multimodal Verification Enabled</span>
               </div>
             ) : (
-              <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-400 text-xs font-semibold">
-                <Key className="w-3.5 h-3.5" />
-                <span>⚙️ Local Heuristic Active: Enter your free Gemini API key in Settings (⚙️) for live photo inspection</span>
-              </div>
+              <button
+                type="button"
+                onClick={onOpenConfig}
+                className="inline-flex items-center space-x-2 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl text-amber-400 text-xs font-semibold transition-all cursor-pointer text-left"
+              >
+                <Key className="w-4 h-4 text-amber-400" />
+                <span>⚙️ Local Heuristic Active: Click here to enter your free Gemini API key for live photo inspection</span>
+              </button>
             )}
           </div>
         </div>
@@ -219,13 +225,13 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess }) => {
                 )}
               </div>
 
-              {/* Level 3: Gemini 1.5 Flash Vision Multimodal Analysis */}
+              {/* Level 3: Gemini 3.6 Flash Vision Multimodal Analysis */}
               <div className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
                 inspectionStage >= 3 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
               }`}>
                 <div className="flex items-center space-x-2">
                   <Sparkles className="w-4 h-4 text-cyan-400" />
-                  <span>Level 3: Gemini 1.5 Flash rating severity & detecting danger aspects</span>
+                  <span>Level 3: Gemini 3.6 Flash rating severity & detecting danger aspects</span>
                 </div>
                 {inspectionStage > 3 && <Check className="w-4 h-4 text-emerald-400" />}
               </div>

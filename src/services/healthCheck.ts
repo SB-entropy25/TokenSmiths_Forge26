@@ -1,5 +1,5 @@
 import { getAppConfig } from '../config/env';
-import { getSupabaseClient } from './supabaseClient';
+import { getSupabaseClient, resetSupabaseClient } from './supabaseClient';
 
 export interface HealthStatus {
   supabaseDb: {
@@ -17,6 +17,7 @@ export interface HealthStatus {
 }
 
 export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
+  resetSupabaseClient(); // Force fresh connection test
   const config = getAppConfig();
   const supabase = getSupabaseClient();
 
@@ -79,33 +80,45 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     }
   }
 
-  // 3. Check Google Gemini 1.5 Flash Vision API
-  if (!config.geminiApiKey) {
+  // 3. Check Google Gemini 3.6 Flash Vision API
+  const cleanKey = (config.geminiApiKey || '').trim().replace(/^["']|["']$/g, '');
+  if (!cleanKey) {
     result.geminiAi = {
       status: 'not_configured',
       message: 'Gemini API key missing. (Running in smart offline heuristic mode).',
     };
   } else {
     try {
-      const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.geminiApiKey}`;
-      const res = await fetch(pingUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
-        }),
-      });
+      let isSuccess = false;
+      let lastErrMsg = '';
+      const testModels = ['gemini-3.6-flash', 'gemini-3.8-flash'];
 
-      if (res.ok) {
-        result.geminiAi = {
-          status: 'connected',
-          message: 'Gemini 1.5 Flash Vision model active & verified.',
-        };
-      } else {
-        const errText = await res.text();
+      for (const m of testModels) {
+        const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
+        const res = await fetch(pingUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
+          }),
+        });
+
+        if (res.ok) {
+          isSuccess = true;
+          result.geminiAi = {
+            status: 'connected',
+            message: `Gemini (${m}) active & verified with your key.`,
+          };
+          break;
+        } else {
+          lastErrMsg = await res.text();
+        }
+      }
+
+      if (!isSuccess) {
         result.geminiAi = {
           status: 'error',
-          message: `Gemini API rejected key (${res.status}): ${errText}`,
+          message: `Gemini API key verification failed: ${lastErrMsg.slice(0, 180)}`,
         };
       }
     } catch (e: any) {

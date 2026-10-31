@@ -150,7 +150,7 @@ export const INITIAL_CLUSTERS: Cluster[] = [
         type: 'ai_checked',
         message: 'AI Vision confirmed electrical hazard. Critical risk_to_life flag activated (+1 severity bonus, capped at 5).',
         public: true,
-        actor: 'Gemini 1.5 Flash',
+        actor: 'Gemini 3.6 Flash',
         created_at: new Date(Date.now() - 3.9 * 3600 * 1000).toISOString(),
       },
       {

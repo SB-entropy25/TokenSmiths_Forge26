@@ -161,7 +161,7 @@ const fileToBase64 = (file: File | Blob): Promise<string> => {
   });
 };
 
-// Upload photo directly to Supabase Storage
+// Upload photo directly to Supabase Storage with strict 3-second timeout protection
 const uploadPhotoDirect = async (file: File | Blob, bucket: 'reports' | 'proofs'): Promise<string> => {
   const supabase = getSupabaseClient();
   if (!supabase) {
@@ -171,25 +171,32 @@ const uploadPhotoDirect = async (file: File | Blob, bucket: 'reports' | 'proofs'
   try {
     const ext = file.type === 'image/png' ? 'png' : 'jpg';
     const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${ext}`;
-    const { error } = await supabase.storage.from(bucket).upload(filename, file, {
+
+    const uploadPromise = supabase.storage.from(bucket).upload(filename, file, {
       contentType: file.type || 'image/jpeg',
       upsert: true,
     });
 
+    const timeoutPromise = new Promise<{ error: Error; data: null }>((resolve) =>
+      setTimeout(() => resolve({ error: new Error('Upload timed out'), data: null }), 3500)
+    );
+
+    const { error } = (await Promise.race([uploadPromise, timeoutPromise])) as any;
+
     if (error) {
-      console.warn(`Supabase Storage upload to ${bucket} returned error, using local URL:`, error);
+      console.warn(`Supabase Storage upload to ${bucket} returned error or timed out, using preview URL:`, error);
       return URL.createObjectURL(file);
     }
 
     const { data } = supabase.storage.from(bucket).getPublicUrl(filename);
     return data.publicUrl || URL.createObjectURL(file);
   } catch (err) {
-    console.warn('Storage upload exception:', err);
+    console.warn('Storage upload exception, using local URL:', err);
     return URL.createObjectURL(file);
   }
 };
 
-// Direct Gemini 1.5 Flash Vision Multimodal Analysis
+// Direct Gemini 3.6 Flash Vision Multimodal Analysis
 const analyzeWithGeminiDirect = async (
   widePhoto: File | Blob,
   nearPhoto: File | Blob,
@@ -256,38 +263,52 @@ Reply ONLY with valid raw JSON in this exact shape:
 }
 `;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
+  const candidateModels = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+  let lastError: any = null;
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: promptText },
-            { inline_data: { mime_type: 'image/jpeg', data: wideBase64 } },
-            { inline_data: { mime_type: 'image/jpeg', data: nearBase64 } },
+  for (const model of candidateModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(9000),
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: promptText },
+                { inline_data: { mime_type: 'image/jpeg', data: wideBase64 } },
+                { inline_data: { mime_type: 'image/jpeg', data: nearBase64 } },
+              ],
+            },
           ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-      },
-    }),
-  });
+          generationConfig: {
+            responseMimeType: 'application/json',
+          },
+        }),
+      });
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Gemini API error (${res.status}): ${errorBody || res.statusText}`);
+      if (!res.ok) {
+        const errorBody = await res.text();
+        lastError = new Error(`Gemini (${model}) returned HTTP ${res.status}: ${errorBody}`);
+        continue; // Try next model
+      }
+
+      const json = await res.json();
+      const textOutput = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!textOutput) throw new Error('Empty response from Gemini');
+
+      const sanitizedJson = textOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
+      return JSON.parse(sanitizedJson);
+    } catch (err) {
+      lastError = err;
+    }
   }
 
-  const json = await res.json();
-  const textOutput = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!textOutput) throw new Error('Empty response from Gemini');
-
-  return JSON.parse(textOutput);
+  throw lastError || new Error('All Gemini model endpoints failed.');
 };
 
 // Query Context: Weather (Open-Meteo) & OSM Overpass (School/Hospital proximity)
@@ -296,9 +317,10 @@ const queryLiveContext = async (lat: number, lng: number): Promise<{ nearSchoolO
   let rainForecast = false;
 
   try {
-    // 1. Open-Meteo Forecast (Free public API, no key required)
+    // 1. Open-Meteo Forecast (Free public API, 2s timeout)
     const weatherRes = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation&forecast_days=1`
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation&forecast_days=1`,
+      { signal: AbortSignal.timeout(2000) }
     );
     if (weatherRes.ok) {
       const weatherData = await weatherRes.json();
@@ -306,22 +328,23 @@ const queryLiveContext = async (lat: number, lng: number): Promise<{ nearSchoolO
       rainForecast = precipitationList.some((p) => p > 1.0);
     }
   } catch (e) {
-    console.info('Open-Meteo context skipped:', e);
+    console.info('Open-Meteo context skipped or timed out:', e);
   }
 
   try {
-    // 2. Overpass API (Free public OSM API, no key required)
-    const overpassQuery = `[out:json][timeout:5];nwr(around:300,${lat},${lng})[amenity~"school|hospital"];out count;`;
+    // 2. Overpass API (Free public OSM API, 2s timeout)
+    const overpassQuery = `[out:json][timeout:3];nwr(around:300,${lat},${lng})[amenity~"school|hospital"];out count;`;
     const overpassRes = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       body: overpassQuery,
+      signal: AbortSignal.timeout(2000),
     });
     if (overpassRes.ok) {
       const overpassData = await overpassRes.json();
       nearSchoolOrHospital = (overpassData.elements?.length || 0) > 0;
     }
   } catch (e) {
-    console.info('Overpass context skipped:', e);
+    console.info('Overpass context skipped or timed out:', e);
   }
 
   return { nearSchoolOrHospital, rainForecast };
@@ -376,7 +399,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   // Step 2: Query Context (Weather + Proximity to School/Hospital)
   const context = await queryLiveContext(payload.lat, payload.lng);
 
-  // Step 3: Run AI Multimodal Vision Analysis (Gemini 1.5 Flash)
+  // Step 3: Run AI Multimodal Vision Analysis (Gemini 3.6 Flash)
   let aiResult: {
     is_valid_civic_issue: boolean;
     detected_issue_type: string;
@@ -605,7 +628,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
           type: 'ai_checked',
           message: `Gemini AI rated Level ${severityFinal}/5 severity with an active resolution SLA window of ${etaHours}h.`,
           public: true,
-          actor: 'Gemini 1.5 Flash',
+          actor: 'Gemini 3.6 Flash',
           created_at: new Date().toISOString(),
         },
       ],
