@@ -83,6 +83,7 @@ export const PublicMapView: React.FC = () => {
   const openCount = clusters.filter((c) => c.status !== 'closed' && c.status !== 'rejected').length;
   const closedCount = clusters.filter((c) => c.status === 'closed').length;
   const criticalCount = clusters.filter((c) => c.severity_current === 5 && c.status !== 'closed').length;
+  const localities = Array.from(new Set(clusters.map((c) => c.locality).filter(Boolean))).slice(0, 2).join(', ') || 'No active sectors';
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
@@ -107,8 +108,8 @@ export const PublicMapView: React.FC = () => {
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
-          <span className="text-xs text-slate-400 font-semibold block">Busiest Localities</span>
-          <span className="text-sm font-bold text-slate-200 mt-1 block line-clamp-1">Connaught Pl, Sector 62</span>
+          <span className="text-xs text-slate-400 font-semibold block">Active Localities</span>
+          <span className="text-sm font-bold text-slate-200 mt-1 block line-clamp-1">{localities}</span>
           <span className="text-[11px] text-slate-500">Auto-deduplicated</span>
         </div>
       </div>

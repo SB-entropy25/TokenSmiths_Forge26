@@ -10,22 +10,25 @@ import {
   DangerAspects,
 } from '../types';
 
-// In-memory cache synced with localStorage
+// In-memory cache synced with localStorage (strictly user-entered only, zero dummy entries)
 let clustersData: Cluster[] = (() => {
-  const saved = localStorage.getItem('CIVIC_CLUSTERS_CACHE');
-  if (saved) {
-    try {
-      return JSON.parse(saved);
-    } catch (e) {
-      console.warn('Failed to parse cached clusters', e);
+  try {
+    localStorage.removeItem('CIVIC_CLUSTERS_CACHE'); // Purge legacy dummy clusters
+    const saved = localStorage.getItem('CIVIC_USER_CLUSTERS');
+    if (saved) {
+      const parsed: Cluster[] = JSON.parse(saved);
+      // Strictly filter out any hardcoded legacy clusters (e.g. cluster-101, cluster-102)
+      return parsed.filter((c) => !c.id.startsWith('cluster-10'));
     }
+  } catch (e) {
+    console.warn('Failed to parse cached clusters', e);
   }
-  return [...INITIAL_CLUSTERS];
+  return [];
 })();
 
 const persistClusters = () => {
   try {
-    localStorage.setItem('CIVIC_CLUSTERS_CACHE', JSON.stringify(clustersData));
+    localStorage.setItem('CIVIC_USER_CLUSTERS', JSON.stringify(clustersData));
   } catch (e) {
     console.warn('Failed to persist clusters', e);
   }
@@ -144,7 +147,7 @@ export const calculateDistanceMeters = (lat1: number, lon1: number, lat2: number
 };
 
 export const getNextTicketCode = (): string => {
-  const total = clustersData.reduce((acc, c) => acc + (c.tickets?.length || 0), 0) + 105;
+  const total = clustersData.reduce((acc, c) => acc + (c.tickets?.length || 0), 0) + 1;
   return `CP-2026-${String(total).padStart(6, '0')}`;
 };
 

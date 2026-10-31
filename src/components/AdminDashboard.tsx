@@ -18,10 +18,10 @@ import {
   Database,
   Check,
   XCircle,
+  Inbox,
 } from 'lucide-react';
 import { Cluster, Ticket, IssueCategory } from '../types';
 import { getClusters, fetchLiveClusters, updateClusterAdmin, resolveVerificationQueue, getDepartments } from '../services/api';
-import { runFullSystemDiagnostics, HealthStatus } from '../services/healthCheck';
 
 interface AdminDashboardProps {
   currentTab: string;
@@ -34,17 +34,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
   const [slaDivisor, setSlaDivisor] = useState<number>(1);
   const [loading, setLoading] = useState(false);
 
-  // Health Diagnostics State
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [checkingHealth, setCheckingHealth] = useState(false);
-
   // Action Drawer / Modal states
   const [newStatus, setNewStatus] = useState<string>('');
   const [assignDept, setAssignDept] = useState<string>('');
   const [adminNote, setAdminNote] = useState<string>('');
   const [overrideSeverity, setOverrideSeverity] = useState<number>(0);
   const [overrideReason, setOverrideReason] = useState<string>('');
-  const [proofPhotoUrl, setProofPhotoUrl] = useState<string>('https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80');
+  const [proofPhotoUrl, setProofPhotoUrl] = useState<string>('');
 
   // Verification Queue action state
   const [rejectReason, setRejectReason] = useState<string>('');
@@ -59,19 +55,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     if (selectedCluster) {
       setSelectedCluster(fresh.find((c) => c.id === selectedCluster.id) || null);
     }
-    onRefresh();
-  };
-
-  const runDiagnostics = async () => {
-    setCheckingHealth(true);
-    const status = await runFullSystemDiagnostics();
-    setHealth(status);
-    setCheckingHealth(false);
   };
 
   useEffect(() => {
     loadData();
-    runDiagnostics();
   }, []);
 
   const handleApplyActions = () => {
@@ -91,12 +78,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     setOverrideSeverity(0);
     setOverrideReason('');
     loadData();
+    onRefresh();
   };
 
   const handleVerifyDecision = (ticketId: string, approve: boolean) => {
     resolveVerificationQueue(ticketId, approve, rejectReason || (approve ? 'Verified genuine' : 'Failed authenticity test'));
     setRejectReason('');
     loadData();
+    onRefresh();
   };
 
   const columns = [5, 4, 3, 2, 1];
@@ -107,91 +96,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
-      {/* 1. Live System Connection & Diagnostics Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-3">
-          <div className="flex items-center space-x-2">
-            <Database className="w-4 h-4 text-emerald-400" />
-            <span className="text-xs font-bold uppercase tracking-wider text-white">
-              Backend & AI Connection Status
-            </span>
-          </div>
-
-          <button
-            onClick={runDiagnostics}
-            disabled={checkingHealth}
-            className="flex items-center space-x-1.5 text-[11px] px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${checkingHealth ? 'animate-spin' : ''}`} />
-            <span>{checkingHealth ? 'Pinging Services...' : 'Re-test Connections'}</span>
-          </button>
-        </div>
-
-        {/* 3 Status Pills */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 text-xs">
-          {/* Supabase DB */}
-          <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-slate-300">1. Supabase Database</span>
-              {health?.supabaseDb.status === 'connected' ? (
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center space-x-1">
-                  <Check className="w-3 h-3" />
-                  <span>CONNECTED</span>
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-[10px] flex items-center space-x-1">
-                  <XCircle className="w-3 h-3" />
-                  <span>{health?.supabaseDb.status === 'not_configured' ? 'NOT CONFIGURED' : 'ERROR'}</span>
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-400 line-clamp-2">
-              {health?.supabaseDb.message || 'Checking database schema...'}
-            </p>
-          </div>
-
-          {/* Supabase Storage */}
-          <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-slate-300">2. Supabase Storage</span>
-              {health?.supabaseStorage.status === 'connected' ? (
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center space-x-1">
-                  <Check className="w-3 h-3" />
-                  <span>READY ('reports')</span>
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-[10px] flex items-center space-x-1">
-                  <XCircle className="w-3 h-3" />
-                  <span>CHECK POLICIES</span>
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-400 line-clamp-2">
-              {health?.supabaseStorage.message || 'Verifying photo buckets...'}
-            </p>
-          </div>
-
-          {/* Gemini AI Vision */}
-          <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-semibold text-slate-300">3. Gemini 3.6 Flash Vision</span>
-              {health?.geminiAi.status === 'connected' ? (
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center space-x-1">
-                  <Check className="w-3 h-3" />
-                  <span>ACTIVE</span>
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-bold text-[10px]">
-                  OFFLINE HEURISTIC
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-400 line-clamp-2">
-              {health?.geminiAi.message || 'Verifying AI API key...'}
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* 2. Top Banner: Command Room & SLA Demo Speedup */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -233,6 +137,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
           </button>
         </div>
       </div>
+
+      {clusters.length === 0 && currentTab !== 'admin-verify' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+          <div className="w-12 h-12 bg-slate-800 text-slate-400 rounded-2xl flex items-center justify-center mx-auto">
+            <Inbox className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-bold text-white">No Civic Complaints in Queue</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            All dummy and hardcoded entries have been removed. When citizens submit real reports with photos via the portal, they will automatically be triaged and displayed here in real time.
+          </p>
+        </div>
+      )}
 
       {/* 3. Main View Router: Kanban Board vs Verification Queue */}
       {currentTab === 'admin-verify' ? (
@@ -283,43 +199,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <span className="text-xs text-slate-400 font-semibold block mb-1">Wide-View Photo (Surroundings):</span>
-                        <img
-                          src={heldTicket.wide_photo_url}
-                          alt="Wide"
-                          onError={(e) => {
-                            e.currentTarget.src = 'https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=800&q=80';
-                          }}
-                          className="h-44 w-full object-cover rounded-xl border border-slate-700"
-                        />
-                        <a
-                          href={heldTicket.wide_photo_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
-                        >
-                          <span>Open Wide Image</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                        {heldTicket.wide_photo_url ? (
+                          <img
+                            src={heldTicket.wide_photo_url}
+                            alt="Wide"
+                            className="h-44 w-full object-cover rounded-xl border border-slate-700 bg-slate-950"
+                          />
+                        ) : (
+                          <div className="h-44 w-full rounded-xl border border-slate-700 bg-slate-950 flex items-center justify-center text-slate-500 text-xs">
+                            No photo attached
+                          </div>
+                        )}
+                        {heldTicket.wide_photo_url && (
+                          <a
+                            href={heldTicket.wide_photo_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
+                          >
+                            <span>Open Wide Image</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
                       </div>
                       <div>
                         <span className="text-xs text-slate-400 font-semibold block mb-1">Near-View Photo (Close-up Texture):</span>
-                        <img
-                          src={heldTicket.near_photo_url}
-                          alt="Near"
-                          onError={(e) => {
-                            e.currentTarget.src = 'https://images.unsplash.com/photo-1548263594-a71ea65a8598?auto=format&fit=crop&w=800&q=80';
-                          }}
-                          className="h-44 w-full object-cover rounded-xl border border-slate-700"
-                        />
-                        <a
-                          href={heldTicket.near_photo_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
-                        >
-                          <span>Open Near Image</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                        {heldTicket.near_photo_url ? (
+                          <img
+                            src={heldTicket.near_photo_url}
+                            alt="Near"
+                            className="h-44 w-full object-cover rounded-xl border border-slate-700 bg-slate-950"
+                          />
+                        ) : (
+                          <div className="h-44 w-full rounded-xl border border-slate-700 bg-slate-950 flex items-center justify-center text-slate-500 text-xs">
+                            No photo attached
+                          </div>
+                        )}
+                        {heldTicket.near_photo_url && (
+                          <a
+                            href={heldTicket.near_photo_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
+                          >
+                            <span>Open Near Image</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
                       </div>
                     </div>
 
@@ -476,44 +402,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <span className="text-[10px] text-slate-400 font-semibold block mb-1">Wide Environment</span>
-                        <img
-                          src={t.wide_photo_url}
-                          alt="Wide"
-                          onError={(e) => {
-                            e.currentTarget.src =
-                              'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80';
-                          }}
-                          className="h-36 w-full object-cover rounded-xl border border-slate-700"
-                        />
-                        <a
-                          href={t.wide_photo_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[10px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
-                        >
-                          <span>Full Photo ↗</span>
-                        </a>
+                        {t.wide_photo_url ? (
+                          <img
+                            src={t.wide_photo_url}
+                            alt="Wide"
+                            className="h-36 w-full object-cover rounded-xl border border-slate-700 bg-slate-950"
+                          />
+                        ) : (
+                          <div className="h-36 w-full rounded-xl border border-slate-700 bg-slate-950 flex items-center justify-center text-slate-500 text-xs">
+                            No photo
+                          </div>
+                        )}
+                        {t.wide_photo_url && (
+                          <a
+                            href={t.wide_photo_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
+                          >
+                            <span>Full Photo ↗</span>
+                          </a>
+                        )}
                       </div>
 
                       <div>
                         <span className="text-[10px] text-slate-400 font-semibold block mb-1">Close-up Damage</span>
-                        <img
-                          src={t.near_photo_url}
-                          alt="Near"
-                          onError={(e) => {
-                            e.currentTarget.src =
-                              'https://images.unsplash.com/photo-1584463699028-d890cf282bb0?auto=format&fit=crop&w=800&q=80';
-                          }}
-                          className="h-36 w-full object-cover rounded-xl border border-slate-700"
-                        />
-                        <a
-                          href={t.near_photo_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[10px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
-                        >
-                          <span>Full Photo ↗</span>
-                        </a>
+                        {t.near_photo_url ? (
+                          <img
+                            src={t.near_photo_url}
+                            alt="Near"
+                            className="h-36 w-full object-cover rounded-xl border border-slate-700 bg-slate-950"
+                          />
+                        ) : (
+                          <div className="h-36 w-full rounded-xl border border-slate-700 bg-slate-950 flex items-center justify-center text-slate-500 text-xs">
+                            No photo
+                          </div>
+                        )}
+                        {t.near_photo_url && (
+                          <a
+                            href={t.near_photo_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] text-emerald-400 hover:underline mt-1 inline-flex items-center space-x-1"
+                          >
+                            <span>Full Photo ↗</span>
+                          </a>
+                        )}
                       </div>
                     </div>
 
