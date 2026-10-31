@@ -1,0 +1,120 @@
+import { getAppConfig } from '../config/env';
+import { getSupabaseClient } from './supabaseClient';
+
+export interface HealthStatus {
+  supabaseDb: {
+    status: 'checking' | 'connected' | 'error' | 'not_configured';
+    message: string;
+  };
+  supabaseStorage: {
+    status: 'checking' | 'connected' | 'error' | 'not_configured';
+    message: string;
+  };
+  geminiAi: {
+    status: 'checking' | 'connected' | 'error' | 'not_configured';
+    message: string;
+  };
+}
+
+export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
+  const config = getAppConfig();
+  const supabase = getSupabaseClient();
+
+  const result: HealthStatus = {
+    supabaseDb: { status: 'checking', message: 'Verifying...' },
+    supabaseStorage: { status: 'checking', message: 'Verifying...' },
+    geminiAi: { status: 'checking', message: 'Verifying...' },
+  };
+
+  // 1. Check Supabase Database
+  if (!supabase || !config.supabaseUrl || !config.supabaseAnonKey) {
+    result.supabaseDb = {
+      status: 'not_configured',
+      message: 'Supabase URL or Anon Key missing in settings.',
+    };
+    result.supabaseStorage = {
+      status: 'not_configured',
+      message: 'Supabase credentials missing.',
+    };
+  } else {
+    try {
+      const { data, error } = await supabase.from('clusters').select('id').limit(1);
+      if (error) {
+        result.supabaseDb = {
+          status: 'error',
+          message: `Database error: ${error.message} (Code: ${error.code})`,
+        };
+      } else {
+        result.supabaseDb = {
+          status: 'connected',
+          message: `Connected successfully to ${config.supabaseUrl}`,
+        };
+      }
+    } catch (e: any) {
+      result.supabaseDb = {
+        status: 'error',
+        message: `Network failure connecting to Supabase: ${e.message}`,
+      };
+    }
+
+    // 2. Check Supabase Storage ('reports' bucket)
+    try {
+      const { data, error } = await supabase.storage.from('reports').list('', { limit: 1 });
+      if (error) {
+        result.supabaseStorage = {
+          status: 'error',
+          message: `Storage 'reports' bucket error: ${error.message}. (Did you run the storage policies SQL?)`,
+        };
+      } else {
+        result.supabaseStorage = {
+          status: 'connected',
+          message: `Public storage bucket 'reports' verified and ready for citizen photos.`,
+        };
+      }
+    } catch (e: any) {
+      result.supabaseStorage = {
+        status: 'error',
+        message: `Storage check failed: ${e.message}`,
+      };
+    }
+  }
+
+  // 3. Check Google Gemini 1.5 Flash Vision API
+  if (!config.geminiApiKey) {
+    result.geminiAi = {
+      status: 'not_configured',
+      message: 'Gemini API key missing. (Running in smart offline heuristic mode).',
+    };
+  } else {
+    try {
+      const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.geminiApiKey}`;
+      const res = await fetch(pingUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
+        }),
+      });
+
+      if (res.ok) {
+        result.geminiAi = {
+          status: 'connected',
+          message: 'Gemini 1.5 Flash Vision model active & verified.',
+        };
+      } else {
+        const errText = await res.text();
+        result.geminiAi = {
+          status: 'error',
+          message: `Gemini API rejected key (${res.status}): ${errText}`,
+        };
+      }
+    } catch (e: any) {
+      result.geminiAi = {
+        status: 'error',
+        message: `Gemini network check failed: ${e.message}`,
+      };
+    }
+  }
+
+  return result;
+};
