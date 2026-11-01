@@ -61,10 +61,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     loadData();
   }, []);
 
-  const handleApplyActions = () => {
+  const handleApplyActions = async () => {
     if (!selectedCluster) return;
 
-    updateClusterAdmin(selectedCluster.id, {
+    await updateClusterAdmin(selectedCluster.id, {
       status: newStatus || undefined,
       department_name: assignDept || undefined,
       admin_message: adminNote || undefined,
@@ -77,14 +77,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     setAdminNote('');
     setOverrideSeverity(0);
     setOverrideReason('');
-    loadData();
+    await loadData();
     onRefresh();
   };
 
-  const handleVerifyDecision = (ticketId: string, approve: boolean) => {
-    resolveVerificationQueue(ticketId, approve, rejectReason || (approve ? 'Verified genuine' : 'Failed authenticity test'));
+  const handleVerifyDecision = async (ticketId: string, approve: boolean) => {
+    await resolveVerificationQueue(ticketId, approve, rejectReason || (approve ? 'Verified genuine' : 'Failed authenticity test'));
     setRejectReason('');
-    loadData();
+    await loadData();
     onRefresh();
   };
 
@@ -127,11 +127,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
               const next = slaDivisor === 1 ? 360 : 1;
               setSlaDivisor(next);
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              slaDivisor === 360
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${slaDivisor === 360
                 ? 'bg-amber-500 text-slate-950 font-extrabold shadow-md shadow-amber-500/30'
                 : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-            }`}
+              }`}
           >
             {slaDivisor === 360 ? '⚡ Active (360x)' : 'Set 360x Demo'}
           </button>
@@ -295,21 +294,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
               level === 5
                 ? 'Level 5 • Critical (6h)'
                 : level === 4
-                ? 'Level 4 • High (24h)'
-                : level === 3
-                ? 'Level 3 • Medium (72h)'
-                : level === 2
-                ? 'Level 2 • Low (5d)'
-                : 'Level 1 • Minor (10d)';
+                  ? 'Level 4 • High (24h)'
+                  : level === 3
+                    ? 'Level 3 • Medium (72h)'
+                    : level === 2
+                      ? 'Level 2 • Low (5d)'
+                      : 'Level 1 • Minor (10d)';
 
             const headerColor =
               level === 5
                 ? 'border-red-500/50 text-red-400 bg-red-950/20'
                 : level === 4
-                ? 'border-orange-500/50 text-orange-400 bg-orange-950/20'
-                : level === 3
-                ? 'border-amber-500/50 text-amber-400 bg-amber-950/20'
-                : 'border-blue-500/50 text-blue-400 bg-blue-950/20';
+                  ? 'border-orange-500/50 text-orange-400 bg-orange-950/20'
+                  : level === 3
+                    ? 'border-amber-500/50 text-amber-400 bg-amber-950/20'
+                    : 'border-blue-500/50 text-blue-400 bg-blue-950/20';
 
             return (
               <div key={level} className="flex flex-col bg-slate-900/80 border border-slate-800 rounded-2xl p-3 min-w-[240px]">

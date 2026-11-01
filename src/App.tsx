@@ -1,28 +1,71 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Header } from './components/Header';
 import { ReportForm } from './components/ReportForm';
 import { TrackTicketView } from './components/TrackTicketView';
 import { PublicMapView } from './components/PublicMapView';
-import { AdminDashboard } from './components/AdminDashboard';
 import { TicketSuccessModal } from './components/TicketSuccessModal';
-import { ConfigModal } from './components/ConfigModal';
+import { LandingPage } from './components/LandingPage';
+import { AdminLogin } from './components/AdminLogin';
+import { AdminPanel } from './components/AdminPanel';
 import { SubmissionResponse } from './types';
-import { getClusters } from './services/api';
-import { getAppConfig, AppConfig } from './config/env';
+import { getAppConfig } from './config/env';
+import { isAdminAuthenticated, adminLogout } from './config/adminAuth';
+
+type Route = 'landing' | 'app' | 'admin';
+const CITIZEN_TABS = ['report', 'track', 'map'];
+
+// Hash routes: #/ (landing)  #/app[/report|track|map]  #/admin
+const parseHash = (): { route: Route; tab: string } => {
+  const [first = '', second = ''] = window.location.hash.replace(/^#\/?/, '').split('/');
+  if (first === 'admin') return { route: 'admin', tab: 'report' };
+  if (first === 'app') return { route: 'app', tab: CITIZEN_TABS.includes(second) ? second : 'report' };
+  return { route: 'landing', tab: 'report' };
+};
+
+export const navigate = (path: string) => {
+  window.location.hash = path;
+};
 
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<string>('report');
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [{ route, tab }, setLocation] = useState(parseHash());
+  const [isAdminAuthed, setIsAdminAuthed] = useState<boolean>(isAdminAuthenticated());
   const [successResponse, setSuccessResponse] = useState<SubmissionResponse | null>(null);
   const [trackInitialCode, setTrackInitialCode] = useState<string>('');
-  const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
-  const [config, setConfig] = useState<AppConfig>(getAppConfig());
   const [refreshKey, setRefreshKey] = useState<number>(0);
 
-  const clusters = getClusters();
-  const verificationCount = clusters.filter(
-    (c) => c.status === 'under_verification' || c.tickets?.some((t) => t.ai_flag)
-  ).length;
+  useEffect(() => {
+    const onHashChange = () => {
+      setLocation(parseHash());
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  // Re-validate session (expiry) whenever entering the admin route
+  useEffect(() => {
+    if (route === 'admin') setIsAdminAuthed(isAdminAuthenticated());
+  }, [route]);
+
+  if (route === 'landing') {
+    return <LandingPage onReport={() => navigate('/app/report')} onViewMap={() => navigate('/app/map')} />;
+  }
+
+  if (route === 'admin') {
+    if (!isAdminAuthed) return <AdminLogin onSuccess={() => setIsAdminAuthed(true)} />;
+    return (
+      <AdminPanel
+        onLogout={() => {
+          adminLogout();
+          setIsAdminAuthed(false);
+          navigate('/');
+        }}
+      />
+    );
+  }
+
+  // ----- Citizen app -----
+  const config = getAppConfig();
 
   const handleReportSuccess = (resp: SubmissionResponse) => {
     setSuccessResponse(resp);
@@ -31,66 +74,30 @@ export const App: React.FC = () => {
 
   const handleTrackFromSuccess = (ticketCode: string) => {
     setTrackInitialCode(ticketCode);
-    setCurrentTab('track');
-  };
-
-  const handleConfigSaved = () => {
-    const updated = getAppConfig();
-    setConfig(updated);
-    setRefreshKey((prev) => prev + 1);
+    navigate('/app/track');
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Header
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        isAdmin={isAdmin}
-        setIsAdmin={setIsAdmin}
-        openConfigModal={() => setIsConfigOpen(true)}
-        verificationCount={verificationCount}
+        currentTab={tab}
+        setCurrentTab={(t) => navigate(`/app/${t}`)}
+        goHome={() => navigate('/')}
         hasGeminiKey={Boolean(config.geminiApiKey?.trim())}
       />
 
       <main className="flex-1 pb-16">
-        {currentTab === 'report' && (
-          <ReportForm
-            key={`report-${refreshKey}-${config.geminiApiKey}`}
-            config={config}
-            onSuccess={handleReportSuccess}
-            onOpenConfig={() => setIsConfigOpen(true)}
-          />
+        {tab === 'report' && (
+          <ReportForm key={`report-${refreshKey}-${config.geminiApiKey}`} config={config} onSuccess={handleReportSuccess} />
         )}
-        {currentTab === 'track' && <TrackTicketView key={`track-${refreshKey}`} initialCode={trackInitialCode} />}
-        {currentTab === 'map' && <PublicMapView key={`map-${refreshKey}`} />}
-        {currentTab === 'home' && <PublicMapView key={`home-${refreshKey}`} />}
-        {(currentTab === 'admin-board' || currentTab === 'admin-verify') && (
-          <AdminDashboard
-            key={`admin-${refreshKey}`}
-            currentTab={currentTab}
-            onRefresh={() => setRefreshKey((k) => k + 1)}
-          />
-        )}
+        {tab === 'track' && <TrackTicketView key={`track-${refreshKey}`} initialCode={trackInitialCode} />}
+        {tab === 'map' && <PublicMapView key={`map-${refreshKey}`} />}
       </main>
 
-      {/* Success Modal */}
       {successResponse && (
-        <TicketSuccessModal
-          response={successResponse}
-          onTrack={handleTrackFromSuccess}
-          onClose={() => setSuccessResponse(null)}
-        />
+        <TicketSuccessModal response={successResponse} onTrack={handleTrackFromSuccess} onClose={() => setSuccessResponse(null)} />
       )}
 
-      {/* Config Drawer / Modal */}
-      {isConfigOpen && (
-        <ConfigModal
-          onClose={() => setIsConfigOpen(false)}
-          onSaved={handleConfigSaved}
-        />
-      )}
-
-      {/* Footer */}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
         <p>Civic Triage & Ticketing System • Powered by Supabase, PostGIS & Google Gemini AI</p>
       </footer>

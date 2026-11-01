@@ -26,9 +26,21 @@ let clustersData: Cluster[] = (() => {
   return [];
 })();
 
+const stripBlob = (u?: string) => (u && u.startsWith('blob:') ? '' : u || '');
+
 const persistClusters = () => {
   try {
-    localStorage.setItem('CIVIC_USER_CLUSTERS', JSON.stringify(clustersData));
+    // blob: URLs die on reload, so never persist them
+    const safe = clustersData.map((c) => ({
+      ...c,
+      proof_photo_url: stripBlob(c.proof_photo_url),
+      tickets: c.tickets?.map((t) => ({
+        ...t,
+        wide_photo_url: stripBlob(t.wide_photo_url),
+        near_photo_url: stripBlob(t.near_photo_url),
+      })),
+    }));
+    localStorage.setItem('CIVIC_USER_CLUSTERS', JSON.stringify(safe));
   } catch (e) {
     console.warn('Failed to persist clusters', e);
   }
@@ -147,8 +159,16 @@ export const calculateDistanceMeters = (lat1: number, lon1: number, lat2: number
 };
 
 export const getNextTicketCode = (): string => {
-  const total = clustersData.reduce((acc, c) => acc + (c.tickets?.length || 0), 0) + 1;
-  return `CP-2026-${String(total).padStart(6, '0')}`;
+  // Random suffix so two browsers/devices can never generate the same code
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const existing = new Set(clustersData.flatMap((c) => (c.tickets || []).map((t) => t.ticket_code)));
+  let code = '';
+  do {
+    let suffix = '';
+    for (let i = 0; i < 6; i++) suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+    code = `CP-2026-${suffix}`;
+  } while (existing.has(code));
+  return code;
 };
 
 // Forensic scan for AI generation signatures and generator dimensions
@@ -442,7 +462,8 @@ const queryLiveContext = async (lat: number, lng: number): Promise<{ nearSchoolO
     });
     if (overpassRes.ok) {
       const overpassData = await overpassRes.json();
-      nearSchoolOrHospital = (overpassData.elements?.length || 0) > 0;
+      const total = Number(overpassData.elements?.[0]?.tags?.total ?? 0);
+      nearSchoolOrHospital = total > 0;
     }
   } catch (e) {
     console.info('Overpass context skipped or timed out:', e);
@@ -629,7 +650,28 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         p_radius: 50,
       });
       if (data && data.length > 0) {
-        matchingCluster = data[0];
+        const row: any = data[0];
+        const rowId = row.id ?? row.cluster_id;
+        matchingCluster = clustersData.find((c) => c.id === rowId);
+        if (!matchingCluster && rowId) {
+          // Exists in DB but not in local cache: lightweight stand-in (counters only, never upserted)
+          matchingCluster = {
+            id: rowId,
+            category: payload.category,
+            center_lat: payload.lat,
+            center_lng: payload.lng,
+            address: row.address || '',
+            locality: row.locality || '',
+            severity_current: row.severity_current || 3,
+            flag_count: row.flag_count || 1,
+            status: row.status || 'received',
+            reminder_sent: false,
+            reopen_count: row.reopen_count || 0,
+            created_at: row.created_at || new Date().toISOString(),
+            tickets: [],
+            timeline: [],
+          };
+        }
       }
     } catch (err) {
       console.info('Supabase RPC find_nearby_cluster call error, using haversine:', err);
@@ -657,18 +699,17 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     ' '
   ).toUpperCase()} documented at coordinates (${payload.lat.toFixed(4)}, ${payload.lng.toFixed(
     4
-  )}). Citizen reported: "${payload.description}". Multimodal inspection confirmed ${
-    severityFinal >= 4 ? 'HIGH/CRITICAL public safety concern' : 'standard civic repair requirement'
-  }. Assigned dispatch SLA window: ${etaHours} hours.`;
+  )}). Citizen reported: "${payload.description}". Multimodal inspection confirmed ${severityFinal >= 4 ? 'HIGH/CRITICAL public safety concern' : 'standard civic repair requirement'
+    }. Assigned dispatch SLA window: ${etaHours} hours.`;
 
   const generateUuid = () =>
     typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-          const r = (Math.random() * 16) | 0;
-          const v = c === 'x' ? r : (r & 0x3) | 0x8;
-          return v.toString(16);
-        });
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
 
   const ticketUuid = generateUuid();
 
@@ -770,47 +811,48 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     clustersData.unshift(newCluster);
   }
 
-  // Step 6: Direct insert into Supabase Tables (if connected)
+  // Step 6: Sync to Supabase (if connected)
   if (supabase) {
     try {
-      let { error: cErr } = await supabase.from('clusters').upsert({
-        id: clusterId,
-        category: payload.category,
-        center: `POINT(${payload.lng} ${payload.lat})`,
-        address: `Geotagged (${payload.lat.toFixed(4)}, ${payload.lng.toFixed(4)})`,
-        locality: 'Urban District',
-        severity_current: severityFinal,
-        flag_count: matchingCluster ? matchingCluster.flag_count : 1,
-        status: status,
-        department_name: dept.name,
-        eta_at: new Date(Date.now() + etaHours * 3600 * 1000).toISOString(),
-      });
-
-      // PostGIS fallback format retry if needed
-      if (cErr) {
-        console.warn('Retrying cluster upsert with SRID prefix...', cErr);
-        const retryRes = await supabase.from('clusters').upsert({
+      if (matchingCluster) {
+        // Duplicate report: only bump counters/severity. Never overwrite address/status/department.
+        const { error: cErr } = await supabase
+          .from('clusters')
+          .update({
+            flag_count: matchingCluster.flag_count,
+            severity_current: matchingCluster.severity_current,
+          })
+          .eq('id', clusterId);
+        if (cErr) console.error('🚨 Supabase Cluster Update Error:', cErr);
+      } else {
+        const clusterRow = {
           id: clusterId,
           category: payload.category,
-          center: `SRID=4326;POINT(${payload.lng} ${payload.lat})`,
           address: `Geotagged (${payload.lat.toFixed(4)}, ${payload.lng.toFixed(4)})`,
           locality: 'Urban District',
           severity_current: severityFinal,
-          flag_count: matchingCluster ? matchingCluster.flag_count : 1,
+          flag_count: 1,
           status: status,
           department_name: dept.name,
           eta_at: new Date(Date.now() + etaHours * 3600 * 1000).toISOString(),
-        });
-        cErr = retryRes.error;
+        };
+        let { error: cErr } = await supabase
+          .from('clusters')
+          .upsert({ ...clusterRow, center: `POINT(${payload.lng} ${payload.lat})` });
+
+        // PostGIS fallback format retry if needed
+        if (cErr) {
+          console.warn('Retrying cluster upsert with SRID prefix...', cErr);
+          const retryRes = await supabase
+            .from('clusters')
+            .upsert({ ...clusterRow, center: `SRID=4326;POINT(${payload.lng} ${payload.lat})` });
+          cErr = retryRes.error;
+        }
+        if (cErr) console.error('🚨 Supabase Clusters Upsert Error:', cErr);
+        else console.log('✅ Supabase Cluster recorded successfully:', clusterId);
       }
 
-      if (cErr) {
-        console.error('🚨 Supabase Clusters Upsert Error:', cErr);
-      } else {
-        console.log('✅ Supabase Cluster recorded successfully:', clusterId);
-      }
-
-      const { error: tErr } = await supabase.from('tickets').insert({
+      const baseTicketRow = {
         id: ticketUuid,
         ticket_code: ticketCode,
         cluster_id: clusterId,
@@ -828,19 +870,32 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         danger: aiResult.danger,
         ai_summary: aiResult.summary,
         eta_hours: etaHours,
-      });
+      };
 
+      // Try with the AI/verification columns first so held tickets survive a reload.
+      let { error: tErr } = await supabase.from('tickets').insert({
+        ...baseTicketRow,
+        ai_generated_score: aiGeneratedScore,
+        ai_flag: isHeld,
+        accuracy_m: payload.accuracy,
+        context: { nearSchoolOrHospital: context.nearSchoolOrHospital, rainForecast: context.rainForecast },
+        description_consistent: aiResult.description_consistent ?? true,
+      });
       if (tErr) {
-        console.error('🚨 Supabase Tickets Insert Error:', tErr);
-      } else {
-        console.log('✅ Supabase Ticket inserted successfully:', ticketCode);
+        console.warn('Ticket insert with AI columns failed, retrying with base columns:', tErr);
+        const retry = await supabase.from('tickets').insert(baseTicketRow);
+        tErr = retry.error;
       }
+      if (tErr) console.error('🚨 Supabase Tickets Insert Error:', tErr);
+      else console.log('✅ Supabase Ticket inserted successfully:', ticketCode);
 
       const { error: tlErr } = await supabase.from('timeline_events').insert({
         cluster_id: clusterId,
         ticket_id: ticketUuid,
-        type: 'submitted',
-        message: `Report ${ticketCode} received and verified. Assigned to ${dept.name}.`,
+        type: matchingCluster ? 'flagged' : 'submitted',
+        message: matchingCluster
+          ? `Additional citizen report ${ticketCode} linked to this issue.`
+          : `Report ${ticketCode} received and verified. Assigned to ${dept.name}.`,
         public: true,
         actor: 'Civic Engine',
       });
@@ -1029,10 +1084,66 @@ export const reopenTicket = async (ticketCode: string, mobileLast4: string, reas
   });
 
   persistClusters();
+  await updateClusterDb(
+    cluster.id,
+    {
+      status: 'reopened',
+      reopen_count: cluster.reopen_count,
+      severity_current: cluster.severity_current,
+      last_escalated_at: cluster.last_escalated_at,
+      reminder_sent: false,
+    },
+    ['status', 'severity_current']
+  );
+  await pushTimelineDb({
+    cluster_id: cluster.id,
+    type: 'reopened',
+    message: `Ticket reopened by citizen: "${reason}". Severity escalated to Level ${cluster.severity_current}.`,
+    public: true,
+    actor: 'Citizen Reopen Request',
+  });
   return { success: true, cluster };
 };
 
-export const updateClusterAdmin = (
+// ---------- Supabase write helpers (admin + reopen actions must reach the DB) ----------
+const updateClusterDb = async (id: string, patch: Record<string, any>, fallbackKeys: string[]) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  try {
+    let { error } = await supabase.from('clusters').update(patch).eq('id', id);
+    if (error) {
+      // Some optional columns may not exist in the schema: retry with the core ones only
+      const slim = Object.fromEntries(Object.entries(patch).filter(([k]) => fallbackKeys.includes(k)));
+      if (Object.keys(slim).length > 0) {
+        const retry = await supabase.from('clusters').update(slim).eq('id', id);
+        error = retry.error;
+      }
+    }
+    if (error) console.error('🚨 Supabase cluster update failed (check RLS update policy):', error);
+  } catch (e) {
+    console.error('🚨 Supabase cluster update exception:', e);
+  }
+};
+
+const pushTimelineDb = async (ev: {
+  cluster_id: string;
+  ticket_id?: string;
+  type: string;
+  message: string;
+  public: boolean;
+  actor: string;
+}) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.from('timeline_events').insert(ev);
+    if (error) console.error('🚨 Supabase timeline insert failed:', error);
+  } catch (e) {
+    console.error('🚨 Supabase timeline insert exception:', e);
+  }
+};
+
+export const updateClusterAdmin = async (
   clusterId: string,
   updates: {
     status?: any;
@@ -1043,97 +1154,139 @@ export const updateClusterAdmin = (
     override_reason?: string;
   }
 ) => {
-  const cluster = clustersData.find((c) => c.id === clusterId);
+  let cluster = clustersData.find((c) => c.id === clusterId);
+  if (!cluster) {
+    await fetchLiveClusters();
+    cluster = clustersData.find((c) => c.id === clusterId);
+  }
   if (!cluster) return null;
+
+  const nowIso = new Date().toISOString();
+  const dbPatch: Record<string, any> = {};
+  const events: { type: TimelineEvent['type']; message: string; public: boolean; actor: string }[] = [];
 
   if (updates.status) {
     cluster.status = updates.status;
+    dbPatch.status = updates.status;
     if (updates.status === 'closed') {
-      cluster.closed_at = new Date().toISOString();
+      cluster.closed_at = nowIso;
+      dbPatch.closed_at = nowIso;
       if (updates.proof_photo_url) {
         cluster.proof_photo_url = updates.proof_photo_url;
+        dbPatch.proof_photo_url = updates.proof_photo_url;
       }
     }
   }
 
   if (updates.department_name) {
     cluster.department_name = updates.department_name;
+    dbPatch.department_name = updates.department_name;
   }
 
   if (updates.override_severity) {
     cluster.severity_current = updates.override_severity;
-    cluster.timeline?.push({
-      id: `tl-ovr-${Date.now()}`,
-      cluster_id: cluster.id,
+    dbPatch.severity_current = updates.override_severity;
+    events.push({
       type: 'escalated',
       message: `Admin manually adjusted severity to Level ${updates.override_severity}. Reason: ${updates.override_reason || 'Field evaluation'}`,
       public: false,
       actor: 'Admin',
-      created_at: new Date().toISOString(),
     });
   }
 
   if (updates.admin_message) {
-    cluster.timeline?.push({
-      id: `tl-msg-${Date.now()}`,
-      cluster_id: cluster.id,
-      type: 'admin_message',
-      message: updates.admin_message,
-      public: true,
-      actor: 'Municipal Officer',
-      created_at: new Date().toISOString(),
-    });
+    events.push({ type: 'admin_message', message: updates.admin_message, public: true, actor: 'Municipal Officer' });
   }
 
   if (updates.status) {
-    cluster.timeline?.push({
-      id: `tl-st-${Date.now()}`,
-      cluster_id: cluster.id,
+    events.push({
       type: updates.status === 'closed' ? 'closed' : updates.status === 'assigned' ? 'assigned' : 'admin_message',
-      message: `Status updated to ${updates.status.toUpperCase()}${updates.proof_photo_url ? ' with resolution photo attached.' : '.'}`,
+      message: `Status updated to ${String(updates.status).toUpperCase()}${updates.proof_photo_url ? ' with resolution photo attached.' : '.'}`,
       public: true,
       actor: 'Municipal Administration',
-      created_at: new Date().toISOString(),
     });
   }
 
+  cluster.timeline = cluster.timeline || [];
+  events.forEach((ev, i) => {
+    cluster!.timeline!.push({ id: `tl-adm-${Date.now()}-${i}`, cluster_id: cluster!.id, ...ev, created_at: nowIso });
+  });
   persistClusters();
+
+  // Push to Supabase so changes survive reloads and reach citizens on other devices
+  if (Object.keys(dbPatch).length > 0) {
+    await updateClusterDb(cluster.id, dbPatch, ['status', 'department_name', 'severity_current']);
+  }
+  for (const ev of events) {
+    await pushTimelineDb({ cluster_id: cluster.id, ...ev });
+  }
   return cluster;
 };
 
-export const resolveVerificationQueue = (ticketId: string, approve: boolean, reason: string) => {
-  for (const cluster of clustersData) {
-    const t = cluster.tickets?.find((x) => x.id === ticketId);
-    if (t) {
-      if (approve) {
-        t.ai_flag = false;
-        cluster.status = 'received';
-        cluster.timeline?.push({
-          id: `tl-vapp-${Date.now()}`,
-          cluster_id: cluster.id,
-          ticket_id: t.id,
-          type: 'ai_checked',
-          message: `Officer approved held report: "${reason || 'Verified genuine by officer inspection'}".`,
-          public: true,
-          actor: 'Admin Verification',
-          created_at: new Date().toISOString(),
-        });
-      } else {
-        cluster.status = 'rejected';
-        cluster.timeline?.push({
-          id: `tl-vrej-${Date.now()}`,
-          cluster_id: cluster.id,
-          ticket_id: t.id,
-          type: 'closed',
-          message: `Report rejected during verification: "${reason || 'Photo failed authenticity check'}".`,
-          public: true,
-          actor: 'Admin Verification',
-          created_at: new Date().toISOString(),
-        });
-      }
-      persistClusters();
-      return true;
+export const resolveVerificationQueue = async (ticketId: string, approve: boolean, reason: string) => {
+  const findTicket = () => {
+    for (const cluster of clustersData) {
+      const t = cluster.tickets?.find((x) => x.id === ticketId);
+      if (t) return { cluster, t };
+    }
+    return null;
+  };
+  let hit = findTicket();
+  if (!hit) {
+    await fetchLiveClusters();
+    hit = findTicket();
+  }
+  if (!hit) return false;
+
+  const { cluster, t } = hit;
+  const nowIso = new Date().toISOString();
+  const supabase = getSupabaseClient();
+  cluster.timeline = cluster.timeline || [];
+
+  let newStatus = cluster.status;
+  let event: { type: TimelineEvent['type']; message: string };
+
+  if (approve) {
+    t.ai_flag = false;
+    if (cluster.status === 'under_verification') newStatus = 'received';
+    event = {
+      type: 'ai_checked',
+      message: `Officer approved held report: "${reason || 'Verified genuine by officer inspection'}".`,
+    };
+  } else {
+    newStatus = 'rejected';
+    event = {
+      type: 'closed',
+      message: `Report rejected during verification: "${reason || 'Photo failed authenticity check'}".`,
+    };
+  }
+  cluster.status = newStatus;
+  cluster.timeline.push({
+    id: `tl-ver-${Date.now()}`,
+    cluster_id: cluster.id,
+    ticket_id: t.id,
+    ...event,
+    public: true,
+    actor: 'Admin Verification',
+    created_at: nowIso,
+  });
+  persistClusters();
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.from('tickets').update({ ai_flag: false }).eq('id', t.id);
+      if (error) console.warn('ticket ai_flag update skipped:', error.message);
+    } catch (e) {
+      console.warn('ticket ai_flag update exception:', e);
     }
   }
-  return false;
+  await updateClusterDb(cluster.id, { status: newStatus }, ['status']);
+  await pushTimelineDb({
+    cluster_id: cluster.id,
+    ticket_id: t.id,
+    ...event,
+    public: true,
+    actor: 'Admin Verification',
+  });
+  return true;
 };

@@ -162,14 +162,10 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpe
                 <span>🟢 Gemini 3.6 Flash Vision Active: Strict Multimodal Verification Enabled</span>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={onOpenConfig}
-                className="inline-flex items-center space-x-2 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl text-amber-400 text-xs font-semibold transition-all cursor-pointer text-left"
-              >
+              <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400 text-xs font-semibold">
                 <Key className="w-4 h-4 text-amber-400" />
-                <span>⚙️ Local Heuristic Active: Click here to enter your free Gemini API key for live photo inspection</span>
-              </button>
+                <span>Offline Heuristic Mode: live Gemini photo inspection is not configured on this deployment</span>
+              </div>
             )}
           </div>
         </div>
@@ -197,9 +193,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpe
             {/* Stage Indicators */}
             <div className="space-y-3 text-xs">
               {/* Level 1: Photo & EXIF Verification */}
-              <div className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
-                inspectionStage >= 1 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
-              }`}>
+              <div className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${inspectionStage >= 1 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
+                }`}>
                 <div className="flex items-center space-x-2">
                   <Camera className="w-4 h-4 text-emerald-400" />
                   <span>Level 1: Uploading dual photos & validating EXIF metadata</span>
@@ -208,9 +203,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpe
               </div>
 
               {/* Level 2: AI Synthetic & Deepfake Detection Bar */}
-              <div className={`p-2.5 rounded-xl border transition-all ${
-                inspectionStage >= 2 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
-              }`}>
+              <div className={`p-2.5 rounded-xl border transition-all ${inspectionStage >= 2 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
+                }`}>
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center space-x-2">
                     <Eye className="w-4 h-4 text-amber-400" />
@@ -226,9 +220,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpe
               </div>
 
               {/* Level 3: Gemini 3.6 Flash Vision Multimodal Analysis */}
-              <div className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
-                inspectionStage >= 3 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
-              }`}>
+              <div className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${inspectionStage >= 3 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
+                }`}>
                 <div className="flex items-center space-x-2">
                   <Sparkles className="w-4 h-4 text-cyan-400" />
                   <span>Level 3: Gemini 3.6 Flash rating severity & detecting danger aspects</span>
@@ -237,9 +230,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpe
               </div>
 
               {/* Level 4: Contextual GIS & Portal Verdict */}
-              <div className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
-                inspectionStage >= 4 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
-              }`}>
+              <div className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${inspectionStage >= 4 ? 'bg-slate-900 border-slate-700 text-white' : 'opacity-40 border-transparent'
+                }`}>
                 <div className="flex items-center space-x-2">
                   <Layers className="w-4 h-4 text-indigo-400" />
                   <span>Level 4: Spatial GIS check & drafting official complaint description</span>
