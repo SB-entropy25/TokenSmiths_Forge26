@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Landmark,
   ShieldAlert,
   Camera,
   Sparkles,
@@ -105,10 +106,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onReport, onViewMap })
         <nav className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <a href="#/" className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <ShieldAlert className="w-6 h-6 text-white" />
+              <Landmark className="w-6 h-6 text-white" />
             </div>
             <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
-              CIVIC TRIAGE AI
+              CIVIC TRIAGE PLATFORM
             </span>
           </a>
           <div className="flex items-center space-x-2 sm:space-x-4 text-sm font-semibold">
