@@ -85,6 +85,7 @@ export const App: React.FC = () => {
             key={`report-${refreshKey}-${config.geminiApiKey}`}
             config={config}
             onSuccess={handleReportSuccess}
+            onTrackTicket={handleTrackFromSuccess}
           />
         )}
         {currentTab === 'track' && <TrackTicketView key={`track-${refreshKey}`} initialCode={trackInitialCode} />}

@@ -1,21 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, MapPin, Upload, AlertCircle, Check, Loader2, Sparkles, Navigation, ShieldCheck, Eye, Layers, Key, CheckCircle } from 'lucide-react';
-import { IssueCategory, SubmissionPayload, SubmissionResponse } from '../types';
+import { Camera, MapPin, Upload, AlertCircle, Check, Loader2, Sparkles, Navigation, ShieldCheck, Eye, Layers, Key, CheckCircle, UserCheck, Lock } from 'lucide-react';
+import { IssueCategory, SubmissionPayload, SubmissionResponse, Ticket, Cluster } from '../types';
 import { submitCivicReport } from '../services/api';
 import { getAppConfig, AppConfig } from '../config/env';
+import { CitizenAuthCard } from './CitizenAuthCard';
+import { CitizenUser, getStoredCitizen, fetchCitizenComplaints, fetchCitizenProfileFromDb } from '../services/auth';
 
 interface ReportFormProps {
   onSuccess: (response: SubmissionResponse) => void;
   config?: AppConfig;
+  onTrackTicket?: (ticketCode: string) => void;
 }
 
-export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config }) => {
+export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onTrackTicket }) => {
+  const [citizenUser, setCitizenUser] = useState<CitizenUser | null>(getStoredCitizen());
+  const [activeView, setActiveView] = useState<'new' | 'history'>('new');
+  const [userComplaints, setUserComplaints] = useState<Array<{ ticket: Ticket; cluster: Cluster }>>([]);
+
   const [category, setCategory] = useState<IssueCategory>('pothole');
   const activeGeminiKey = (config?.geminiApiKey || getAppConfig().geminiApiKey || '').trim();
   const [description, setDescription] = useState('');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [mobile, setMobile] = useState('');
+  const [name, setName] = useState(citizenUser?.name || '');
+  const [email, setEmail] = useState(citizenUser?.email || '');
+  const [mobile, setMobile] = useState(citizenUser?.mobile || '');
   const [lat, setLat] = useState<number>(28.6139);
   const [lng, setLng] = useState<number>(77.2090);
   const [accuracy, setAccuracy] = useState<number>(10);
@@ -33,6 +40,29 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config }) => 
   const [submitting, setSubmitting] = useState(false);
   const [inspectionStage, setInspectionStage] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string>('');
+
+  // Sync user profile from Supabase & complaints
+  const loadUserComplaints = async (userObj: CitizenUser | null) => {
+    if (userObj?.email) {
+      const list = await fetchCitizenComplaints(userObj.email);
+      setUserComplaints(list);
+    } else {
+      setUserComplaints([]);
+    }
+  };
+
+  useEffect(() => {
+    loadUserComplaints(citizenUser);
+  }, [citizenUser]);
+
+  const handleUserChange = (u: CitizenUser | null) => {
+    setCitizenUser(u);
+    if (u) {
+      if (u.name) setName(u.name);
+      if (u.email) setEmail(u.email);
+      if (u.mobile) setMobile(u.mobile);
+    }
+  };
 
   useEffect(() => {
     handleGetLocation();
@@ -141,8 +171,46 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config }) => 
   };
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4 sm:px-6">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl">
+    <div className="max-w-3xl mx-auto py-8 px-4 sm:px-6 space-y-6">
+      {/* 1. Google Citizen Account & Previous Complaints Access */}
+      <CitizenAuthCard
+        user={citizenUser}
+        onUserChange={handleUserChange}
+        activeView={activeView}
+        onViewChange={setActiveView}
+        userComplaints={userComplaints}
+        onSelectTicket={(code) => {
+          if (onTrackTicket) onTrackTicket(code);
+        }}
+      />
+
+      {/* 2. Grievance Filing Form or Locked Gate */}
+      {activeView === 'new' && (
+        !citizenUser || !citizenUser.mobile ? (
+          // DEACTIVATED / LOCKED PORTAL CARD
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-12 shadow-xl text-center space-y-5">
+            <div className="w-16 h-16 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center mx-auto text-amber-400 shadow-xl">
+              <Lock className="w-8 h-8 text-amber-400" />
+            </div>
+
+            <div className="max-w-md mx-auto space-y-2">
+              <h3 className="text-xl font-black text-white">
+                Grievance Form Deactivated
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                To prevent automated fake reports and link your complaint to municipal dispatch SLAs, citizens must sign in with Google to file a report.
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <div className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span>Please sign in with Google in the card above to unlock this form</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl">
         <div className="mb-6">
           <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-sm mb-1">
             <Sparkles className="w-4 h-4" />
@@ -483,6 +551,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config }) => 
           )}
         </form>
       </div>
+        )
+      )}
     </div>
   );
 };

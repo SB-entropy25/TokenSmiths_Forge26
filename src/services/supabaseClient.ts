@@ -26,7 +26,11 @@ export const getSupabaseClient = (): SupabaseClient | null => {
 
   try {
     cachedClient = createClient(cleanUrl, cleanKey, {
-      auth: { persistSession: false },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
     });
     lastUrl = cleanUrl;
     lastKey = cleanKey;

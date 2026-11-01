@@ -177,7 +177,7 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
       <div className="bg-slate-800/40 border border-slate-700/80 rounded-xl p-3.5 space-y-1.5">
         <div className="flex items-center space-x-1.5 text-xs font-bold text-emerald-400">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Official Complaint Description Drafted by Gemini AI</span>
+          <span>Official Complaint Description Drafted by AI Model</span>
         </div>
         <p className="text-xs text-slate-200 leading-relaxed font-sans">
           {formalDescription || aiSummary}
