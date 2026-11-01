@@ -80,7 +80,7 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     }
   }
 
-  // 3. Check Google Gemini 3.6 Flash Vision API
+  // 3. Check Google Gemini Flash Vision API (single request, correct model name)
   const cleanKey = (config.geminiApiKey || '').trim().replace(/^["']|["']$/g, '');
   if (!cleanKey) {
     result.geminiAi = {
@@ -89,36 +89,26 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     };
   } else {
     try {
-      let isSuccess = false;
-      let lastErrMsg = '';
-      const testModels = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+      const model = 'gemini-3.6-flash';
+      const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+      const res = await fetch(pingUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
+        }),
+      });
 
-      for (const m of testModels) {
-        const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
-        const res = await fetch(pingUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
-          }),
-        });
-
-        if (res.ok) {
-          isSuccess = true;
-          result.geminiAi = {
-            status: 'connected',
-            message: `Gemini (${m}) active & verified with your key.`,
-          };
-          break;
-        } else {
-          lastErrMsg = await res.text();
-        }
-      }
-
-      if (!isSuccess) {
+      if (res.ok) {
+        result.geminiAi = {
+          status: 'connected',
+          message: `Gemini (${model}) active & verified with your key.`,
+        };
+      } else {
+        const errMsg = await res.text();
         result.geminiAi = {
           status: 'error',
-          message: `Gemini API key verification failed: ${lastErrMsg.slice(0, 180)}`,
+          message: `Gemini API key verification failed: ${errMsg.slice(0, 180)}`,
         };
       }
     } catch (e: any) {
