@@ -18,7 +18,11 @@ const CITIZEN_TABS = ['report', 'track', 'map'];
 
 // Hash routes: #/ (landing) | #/app[/report|track|map] | #/admin
 const parseHash = (): { route: Route; tab: string } => {
-  const [first = '', second = ''] = window.location.hash.replace(/^#\/?/, '').split('/');
+  const hash = window.location.hash || '';
+  if (hash.includes('access_token=') || hash.includes('refresh_token=') || hash.includes('error=')) {
+    return { route: 'app', tab: 'report' };
+  }
+  const [first = '', second = ''] = hash.replace(/^#\/?/, '').split('/');
   if (first === 'admin') return { route: 'admin', tab: 'report' };
   if (first === 'app') return { route: 'app', tab: CITIZEN_TABS.includes(second) ? second : 'report' };
   return { route: 'landing', tab: 'report' };
