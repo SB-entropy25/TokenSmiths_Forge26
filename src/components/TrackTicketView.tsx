@@ -23,7 +23,7 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
   const [reopening, setReopening] = useState(false);
   const [reopenSuccess, setReopenSuccess] = useState(false);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSearchResult(null);
@@ -40,15 +40,18 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
     }
 
     setLoading(true);
-    setTimeout(() => {
-      const result = trackTicket(ticketCode, mobileLast4);
+    try {
+      const result = await trackTicket(ticketCode, mobileLast4);
       setLoading(false);
       if (!result) {
         setErrorMessage('No ticket found matching this Ticket ID and mobile last 4 digits. Please verify.');
       } else {
         setSearchResult(result);
       }
-    }, 400);
+    } catch (err) {
+      setLoading(false);
+      setErrorMessage('Failed to search ticket database. Please try again.');
+    }
   };
 
   const handleReopenSubmit = async (e: React.FormEvent) => {
@@ -65,7 +68,7 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
       setShowReopenModal(false);
       setReopenSuccess(true);
       // Refresh ticket state
-      const refreshed = trackTicket(ticketCode, mobileLast4);
+      const refreshed = await trackTicket(ticketCode, mobileLast4);
       setSearchResult(refreshed);
     } catch (err: any) {
       setReopening(false);

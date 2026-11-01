@@ -24,7 +24,7 @@ const getDefaultConfig = (): AppConfig => {
     supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY || '',
     n8nSubmitWebhookUrl: env.VITE_N8N_SUBMIT_WEBHOOK_URL || '',
     n8nReopenWebhookUrl: env.VITE_N8N_REOPEN_WEBHOOK_URL || '',
-    formApiSecret: env.VITE_FORM_API_SECRET || 'civic-secret-key-2026',
+    formApiSecret: env.VITE_FORM_API_SECRET || '',
     disableEmail: true, // As requested: no emails sent
     enableDemoFallback: true,
   };
@@ -35,7 +35,15 @@ export const getAppConfig = (): AppConfig => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      return { ...defaults, ...JSON.parse(saved) };
+      const parsed = JSON.parse(saved);
+      return {
+        ...defaults,
+        ...parsed,
+        // Use .env defaults if localStorage contains empty strings
+        supabaseUrl: parsed.supabaseUrl?.trim() || defaults.supabaseUrl,
+        supabaseAnonKey: parsed.supabaseAnonKey?.trim() || defaults.supabaseAnonKey,
+        geminiApiKey: parsed.geminiApiKey?.trim() || defaults.geminiApiKey,
+      };
     }
   } catch (e) {
     console.warn('Failed to load config overrides from localStorage', e);

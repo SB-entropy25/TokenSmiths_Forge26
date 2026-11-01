@@ -23,14 +23,23 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
   verdict = 'accepted',
   etaHours = 24,
 }) => {
-  // Score percentage
-  const percentage = Math.round(score * 100);
-  const isHeld = percentage >= 70 || verdict === 'held';
-  const isSuspicious = percentage >= 40 && percentage < 70;
-  const isAuthentic = percentage < 40;
+  // Score percentage (synthetic confidence)
+  // If verdict is rejected and summary indicates AI or synthetic, guarantee >= 95%
+  const indicatesAi =
+    score >= 0.5 ||
+    /ai[- ]?generated|synthetic|watermark|midjourney|dall[- ]?e|flux|stable diffusion|fake|space suit/i.test(aiSummary) ||
+    /ai[- ]?generated|synthetic|watermark|midjourney|dall[- ]?e|flux|stable diffusion|fake/i.test(formalDescription || '');
 
-  const barColor = isHeld ? 'bg-red-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
-  const scoreBadgeColor = isHeld
+  const effectiveScore = indicatesAi ? Math.max(score, 0.95) : score;
+  const percentage = Math.round(effectiveScore * 100);
+
+  const isHeld = percentage >= 70 || verdict === 'held';
+  const isSuspicious = !isHeld && percentage >= 40;
+  const isRejected = verdict === 'rejected';
+  const isAuthentic = !isHeld && !isSuspicious && !isRejected;
+
+  const barColor = isHeld || indicatesAi ? 'bg-red-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
+  const scoreBadgeColor = isHeld || indicatesAi
     ? 'text-red-400 bg-red-500/20 border-red-500/40'
     : isSuspicious
     ? 'text-amber-400 bg-amber-500/20 border-amber-500/40'
@@ -104,11 +113,15 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
         </div>
 
         <p className="text-[11px] text-slate-400">
-          {isAuthentic
-            ? '✓ EXIF metadata, lens curvature, and noise patterns match genuine smartphone camera capture.'
+          {indicatesAi
+            ? '🚨 High probability of synthetic or AI-generated imagery. Upload disallowed by portal AI.'
+            : isRejected
+            ? '⚠️ Visual evidence failed civic validity checks. Does not depict public infrastructure.'
+            : isHeld
+            ? '🚨 High probability of synthetic or AI-generated artifact. Placed in officer verification queue.'
             : isSuspicious
             ? '⚠️ Mild visual compression detected. Proceeding with caution flag.'
-            : '🚨 High probability of synthetic or AI-generated artifact. Placed in officer verification queue.'}
+            : '✓ EXIF metadata, lens curvature, and noise patterns match genuine smartphone camera capture.'}
         </p>
       </div>
 

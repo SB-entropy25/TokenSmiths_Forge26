@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { getClusters } from '../services/api';
+import { getClusters, fetchLiveClusters } from '../services/api';
 import { Cluster } from '../types';
 import { MapPin, Layers, Filter, AlertTriangle } from 'lucide-react';
 
@@ -9,6 +9,14 @@ export const PublicMapView: React.FC = () => {
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>(getClusters());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  useEffect(() => {
+    fetchLiveClusters().then((fresh) => {
+      if (fresh && fresh.length > 0) {
+        setClusters(fresh);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;

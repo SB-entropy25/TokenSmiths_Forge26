@@ -151,6 +151,72 @@ export const getNextTicketCode = (): string => {
   return `CP-2026-${String(total).padStart(6, '0')}`;
 };
 
+// Forensic scan for AI generation signatures and generator dimensions
+const scanImageForAiArtifacts = async (
+  file: File | Blob
+): Promise<{ isAi: boolean; score: number; reason: string }> => {
+  try {
+    // 1. Scan binary metadata bytes (first 256KB) for AI generator headers
+    const buffer = await file.slice(0, 262144).arrayBuffer();
+    const text = new TextDecoder('latin1').decode(buffer).toLowerCase();
+
+    const aiSignatures = [
+      'stablediffusion', 'parameters', 'negative prompt', 'steps: ',
+      'sampler: ', 'dall-e', 'midjourney', 'comfyui', 'automatic1111',
+      'novelai', 'flux.1', 'dreamstudio', 'bingimagecreator', 'civitai',
+      'fooocus', 'kandinsky', 'ai-generated', 'synthid', 'ideogram',
+      'leonardo.ai', 'firefly'
+    ];
+
+    for (const sig of aiSignatures) {
+      if (text.includes(sig)) {
+        return {
+          isAi: true,
+          score: 0.98,
+          reason: `Embedded AI generator signature detected in file metadata: "${sig}".`,
+        };
+      }
+    }
+
+    // 2. Inspect exact pixel resolution footprints used by generative AI models
+    if (typeof Image !== 'undefined') {
+      const dimCheck = await new Promise<{ isAiSize: boolean; dims: string }>((resolve) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          const isStandardAiSize =
+            (w === 1024 && h === 1024) || // DALL-E 3 / Midjourney standard square
+            (w === 1792 && h === 1024) || // DALL-E 3 landscape
+            (w === 1024 && h === 1792) || // DALL-E 3 portrait
+            (w === 512 && h === 512) ||   // SD 1.5 default
+            (w === 768 && h === 768) ||   // SD 2.1 default
+            (w === 1456 && h === 816) ||  // Midjourney 16:9
+            (w === 816 && h === 1456) ||  // Midjourney 9:16
+            (w === 1344 && h === 768) ||  // Flux 16:9
+            (w === 768 && h === 1344);   // Flux 9:16
+          resolve({ isAiSize: isStandardAiSize, dims: `${w}x${h}` });
+        };
+        img.onerror = () => resolve({ isAiSize: false, dims: '' });
+        img.src = url;
+      });
+
+      if (dimCheck.isAiSize) {
+        return {
+          isAi: true,
+          score: 0.92,
+          reason: `Exact generative AI canvas footprint detected (${dimCheck.dims}).`,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Binary AI scan error:', e);
+  }
+  return { isAi: false, score: 0, reason: '' };
+};
+
 // Convert File/Blob to Base64 (stripping header prefix)
 const fileToBase64 = (file: File | Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -207,6 +273,11 @@ const analyzeWithGeminiDirect = async (
   description: string,
   apiKey: string
 ): Promise<{
+  is_ai_generated?: boolean;
+  ai_watermark_detected?: boolean;
+  ai_watermark_description?: string;
+  ai_generated_probability?: number;
+  ai_generated_explanation?: string;
   is_valid_civic_issue: boolean;
   detected_issue_type: string;
   matches_category: boolean;
@@ -222,46 +293,73 @@ const analyzeWithGeminiDirect = async (
   const nearBase64 = await fileToBase64(nearPhoto);
 
   const promptText = `
-You are an expert civic infrastructure inspector for a municipal government complaint portal.
+You are an expert civic infrastructure forensic inspector for a municipal government complaint portal.
 Image 1 is a WIDE view of the public area. Image 2 is a NEAR view of the reported issue.
 Citizen chosen category: "${category}"
 Citizen submitted description: """${description}"""
 
-YOUR CRITICAL TASKS:
-1. STRICT CIVIC VALIDATION:
-   Inspect both photos carefully. Do these photos actually show a REAL PUBLIC CIVIC / MUNICIPAL INFRASTRUCTURE ISSUE (such as road pothole, leaking water main, exposed electrical cable, open manhole/drain, garbage pile, broken streetlight, fallen tree)?
-   - If the photos show: pets, food, selfies, bedrooms, indoor furniture, random wallpapers, memes, car interiors, screenshots, or unrelated everyday objects, set "is_valid_civic_issue": false and "detected_issue_type": "not_a_civic_issue".
+YOUR CRITICAL TASKS IN STRICT PRIORITY ORDER:
+
+1. MANDATORY AI-GENERATION & WATERMARK FORENSICS (CHECK THIS FIRST!):
+   Carefully inspect both images at the pixel and compositional level for ANY evidence of Generative AI (DALL-E, Midjourney, Stable Diffusion, Flux, Sora, Adobe Firefly, Photoshop Generative Fill, Imagen, Bing Image Creator, or CGI):
+   - WATERMARK & LOGO CHECK: Examine all four corners (especially bottom-right and bottom-left) and margins for:
+     * DALL-E's multicolored or yellow/red/blue squares.
+     * Bing Image Creator icon / watermark.
+     * Midjourney, Canva, or Adobe Firefly logos/badges.
+     * Faint translucent AI labels or watermarks anywhere in the image.
+   - SYNTHETIC TEXTURE & LIGHTING FORENSICS:
+     * Unnatural plastic gloss, airbrushed smoothness, or painterly/cartoonish rendering on pavement, asphalt, concrete, or walls.
+     * Surreal, hyper-dramatic volumetric lighting or impossible reflection/shadow angles.
+     * Impossible geometry, warped perspective, melting wheels/curbs, or floating debris.
+     * Warped, dream-like, or alien gibberish text on street signs, license plates, or posters.
+   - STRICT ENFORCEMENT:
+     * If ANY watermark is found OR the image looks AI-generated/synthetic:
+       Set "is_ai_generated": true
+       Set "ai_watermark_detected": true (if watermark/logo visible)
+       Set "ai_generated_probability": 0.95 to 1.00
+       Set "is_valid_civic_issue": false (AI images are simulated fakes, NEVER real municipal emergencies)
+       Set "detected_issue_type": "not_a_civic_issue"
+       Set "rejection_reason": "AI-generated image detected (Watermark/Synthetic artifacts identified). Only genuine camera photos of real physical infrastructure damage are accepted."
+
+2. STRICT CIVIC VALIDATION (For genuine real-world photos):
+   Do these photos actually show a REAL PUBLIC CIVIC / MUNICIPAL INFRASTRUCTURE ISSUE (such as road pothole, leaking water main, exposed electrical cable, open manhole/drain, garbage pile, broken streetlight, fallen tree)?
+   - If the photos show: pets, animals, food, selfies, bedrooms, indoor furniture, random wallpapers, memes, car interiors, screenshots, or unrelated everyday objects, set "is_valid_civic_issue": false and "detected_issue_type": "not_a_civic_issue".
    - If the photos are completely dark, pitch black, or blurry beyond recognition, set "is_valid_civic_issue": false.
 
-2. CATEGORY & DESCRIPTION CHECK:
-   - "matches_category": Does the visible physical issue match the citizen's chosen category "${category}"? (e.g., if citizen selected "pothole" but photo shows a dog or food, set matches_category: false).
+3. CATEGORY & DESCRIPTION CHECK:
+   - "matches_category": Does the visible physical issue match the citizen's chosen category "${category}"? (e.g., if citizen selected "pothole" but photo shows a cat, food, or car, set matches_category: false).
    - "description_consistent": Does the citizen's text describe what is actually visible in the photo? If citizen wrote random gibberish, spam, or completely unrelated words, set description_consistent: false.
 
-3. SEVERITY & DANGER RATING (Only if is_valid_civic_issue is true):
+4. SEVERITY & DANGER RATING (Only if real authentic civic issue):
    - Rate severity from 1 (minor cosmetic defect) to 5 (critical immediate danger to human life: live high-voltage wire, open deep manhole, building collapse risk).
    - Rate danger aspects (true/false): risk_to_life, electrical_hazard, open_manhole_or_pit, blocks_emergency_access, traffic_hazard, water_or_flood_risk, health_hazard, worsens_over_time.
    - Suggest realistic resolution timeline in hours (urgent hazard: 6h, road pothole: 24-48h, garbage: 24h, minor: 72h).
 
-Reply ONLY with valid raw JSON in this exact shape:
+Reply ONLY with valid raw JSON in this exact structure:
 {
-  "is_valid_civic_issue": true,
-  "detected_issue_type": "pothole | garbage | water_leak | sewage_drain | streetlight | electrical_hazard | fallen_tree | other | not_a_civic_issue",
-  "matches_category": true,
-  "description_consistent": true,
-  "rejection_reason": "Provide reason if is_valid_civic_issue is false or matches_category is false, otherwise empty string",
-  "severity_ai": 3,
-  "summary": "One sentence technical summary of the observed physical problem for city engineers",
-  "eta_hours": 24,
-  "confidence": 0.95,
+  "is_ai_generated": true | false,
+  "ai_watermark_detected": true | false,
+  "ai_watermark_description": "string describing watermark if found, else empty",
+  "ai_generated_probability": float (0.85 to 1.00 if AI-generated or watermarked; 0.00 to 0.15 ONLY if genuine camera photo),
+  "ai_generated_explanation": "string explaining visual forensic rationale",
+  "is_valid_civic_issue": boolean,
+  "detected_issue_type": "pothole" | "garbage" | "water_leak" | "sewage_drain" | "streetlight" | "electrical_hazard" | "fallen_tree" | "other" | "not_a_civic_issue",
+  "matches_category": boolean,
+  "description_consistent": boolean,
+  "rejection_reason": "string (mandatory if is_ai_generated is true or is_valid_civic_issue is false)",
+  "severity_ai": 1 | 2 | 3 | 4 | 5,
+  "summary": "technical summary for municipal workers",
+  "eta_hours": 6 | 24 | 48 | 72,
+  "confidence": float,
   "danger": {
-    "risk_to_life": false,
-    "electrical_hazard": false,
-    "open_manhole_or_pit": false,
-    "blocks_emergency_access": false,
-    "traffic_hazard": true,
-    "water_or_flood_risk": false,
-    "health_hazard": false,
-    "worsens_over_time": true
+    "risk_to_life": boolean,
+    "electrical_hazard": boolean,
+    "open_manhole_or_pit": boolean,
+    "blocks_emergency_access": boolean,
+    "traffic_hazard": boolean,
+    "water_or_flood_risk": boolean,
+    "health_hazard": boolean,
+    "worsens_over_time": boolean
   }
 }
 `;
@@ -393,10 +491,12 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   // DIRECT PIPELINE (NO n8n REQUIRED!)
   // ==========================================
 
-  // Step 1: Upload photos directly to Supabase Storage bucket 'reports'
-  const [wideUrl, nearUrl] = await Promise.all([
+  // Step 1: Upload photos directly & run binary scan for AI generator metadata
+  const [wideUrl, nearUrl, wideScan, nearScan] = await Promise.all([
     uploadPhotoDirect(payload.wide_photo, 'reports'),
     uploadPhotoDirect(payload.near_photo, 'reports'),
+    scanImageForAiArtifacts(payload.wide_photo),
+    scanImageForAiArtifacts(payload.near_photo),
   ]);
 
   // Step 2: Query Context (Weather + Proximity to School/Hospital)
@@ -414,6 +514,11 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     eta_hours: number;
     danger: DangerAspects;
     confidence: number;
+    is_ai_generated?: boolean;
+    ai_watermark_detected?: boolean;
+    ai_watermark_description?: string;
+    ai_generated_probability?: number;
+    ai_generated_explanation?: string;
   };
 
   if (config.geminiApiKey) {
@@ -434,15 +539,44 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
   }
 
+  // Calculate true AI-Generated / Synthetic Confidence
+  const metadataScore = Math.max(wideScan.score, nearScan.score);
+  const textIndicatesAi =
+    aiResult.is_ai_generated === true ||
+    aiResult.ai_watermark_detected === true ||
+    (aiResult.rejection_reason && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.rejection_reason)) ||
+    (aiResult.summary && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.summary)) ||
+    (payload.description && /synthetic|ai test|deepfake/i.test(payload.description));
+
+  const geminiScore = typeof aiResult.ai_generated_probability === 'number'
+    ? aiResult.ai_generated_probability
+    : (textIndicatesAi ? 0.96 : 0.04);
+
+  const combinedAiScore = Math.max(
+    metadataScore,
+    geminiScore,
+    textIndicatesAi ? 0.96 : 0
+  );
+  const aiGeneratedScore = Number(Math.max(0, Math.min(1, combinedAiScore)).toFixed(2));
+
+  // If AI generation, watermark, or high synthetic probability detected, strictly enforce rejection
+  if (aiResult.is_ai_generated || aiResult.ai_watermark_detected || combinedAiScore >= 0.50) {
+    aiResult.is_valid_civic_issue = false;
+    aiResult.detected_issue_type = 'not_a_civic_issue';
+    if (!aiResult.rejection_reason || !/ai[- ]?generated|synthetic|watermark/i.test(aiResult.rejection_reason)) {
+      aiResult.rejection_reason = `AI-generated / synthetic imagery detected (${Math.round(aiGeneratedScore * 100)}% synthetic confidence). Submissions must depict genuine physical infrastructure damage.`;
+    }
+  }
+
   // STRICT REJECTION: If Gemini detects that the photo does not show a civic issue
   // OR the description is completely inconsistent with civic damage:
   if (!aiResult.is_valid_civic_issue || aiResult.detected_issue_type === 'not_a_civic_issue' || !aiResult.matches_category) {
     const rejectionMsg =
       aiResult.rejection_reason ||
-      `AI Vision Rejection: Uploaded evidence does not show a public civic hazard or does not match "${payload.category.replace(
+      `AI Vision Rejection: Uploaded evidence does not show an authentic public civic hazard or does not match "${payload.category.replace(
         '_',
         ' '
-      )}". Please upload clear photos of public infrastructure damage.`;
+      )}". Please upload clear photos of real physical infrastructure damage.`;
 
     return {
       success: false,
@@ -452,7 +586,9 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
       eta_hours: 0,
       status: 'rejected',
       ai_summary: rejectionMsg,
-      ai_formal_description: `Submission Rejected by Portal AI: Visual evidence failed civic validity checks. Detected: ${aiResult.detected_issue_type}. Description match: ${aiResult.description_consistent ? 'Partial' : 'Inconsistent'}.`,
+      ai_formal_description: textIndicatesAi
+        ? `Submission Disallowed: Synthetic AI-generated image or watermark detected (${Math.round(aiGeneratedScore * 100)}% Synthetic confidence). Digital fabrications are strictly rejected.`
+        : `Submission Rejected by Portal AI: Visual evidence failed civic validity checks. Detected: ${aiResult.detected_issue_type}. Description match: ${aiResult.description_consistent ? 'Partial' : 'Inconsistent'}.`,
       danger: {
         risk_to_life: false,
         electrical_hazard: false,
@@ -463,7 +599,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         health_hazard: false,
         worsens_over_time: false,
       },
-      ai_generated_score: 0.1,
+      ai_generated_score: aiGeneratedScore,
       portal_verdict: 'rejected',
       context,
       message: rejectionMsg,
@@ -510,13 +646,8 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     );
   }
 
-  // Determine Synthetic AI Detection Score (Layer 4 & 5 check)
-  const isSyntheticTest =
-    payload.description.toLowerCase().includes('synthetic') ||
-    payload.description.toLowerCase().includes('ai test') ||
-    payload.description.toLowerCase().includes('fake');
-  const aiGeneratedScore = isSyntheticTest ? 0.84 : Number((Math.random() * 0.12 + 0.03).toFixed(2));
-  const isHeld = aiGeneratedScore >= 0.70;
+  // If synthetic probability is 50% or higher, hold in verification queue
+  const isHeld = aiGeneratedScore >= 0.50;
   const portalVerdict: 'accepted' | 'held' | 'rejected' = isHeld ? 'held' : 'accepted';
   const status: any = isHeld ? 'under_verification' : 'received';
 
@@ -642,7 +773,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   // Step 6: Direct insert into Supabase Tables (if connected)
   if (supabase) {
     try {
-      const { error: cErr } = await supabase.from('clusters').upsert({
+      let { error: cErr } = await supabase.from('clusters').upsert({
         id: clusterId,
         category: payload.category,
         center: `POINT(${payload.lng} ${payload.lat})`,
@@ -654,7 +785,30 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         department_name: dept.name,
         eta_at: new Date(Date.now() + etaHours * 3600 * 1000).toISOString(),
       });
-      if (cErr) console.error('🚨 Supabase Clusters Upsert Error:', cErr);
+
+      // PostGIS fallback format retry if needed
+      if (cErr) {
+        console.warn('Retrying cluster upsert with SRID prefix...', cErr);
+        const retryRes = await supabase.from('clusters').upsert({
+          id: clusterId,
+          category: payload.category,
+          center: `SRID=4326;POINT(${payload.lng} ${payload.lat})`,
+          address: `Geotagged (${payload.lat.toFixed(4)}, ${payload.lng.toFixed(4)})`,
+          locality: 'Urban District',
+          severity_current: severityFinal,
+          flag_count: matchingCluster ? matchingCluster.flag_count : 1,
+          status: status,
+          department_name: dept.name,
+          eta_at: new Date(Date.now() + etaHours * 3600 * 1000).toISOString(),
+        });
+        cErr = retryRes.error;
+      }
+
+      if (cErr) {
+        console.error('🚨 Supabase Clusters Upsert Error:', cErr);
+      } else {
+        console.log('✅ Supabase Cluster recorded successfully:', clusterId);
+      }
 
       const { error: tErr } = await supabase.from('tickets').insert({
         id: ticketUuid,
@@ -675,10 +829,16 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         ai_summary: aiResult.summary,
         eta_hours: etaHours,
       });
-      if (tErr) console.error('🚨 Supabase Tickets Insert Error:', tErr);
+
+      if (tErr) {
+        console.error('🚨 Supabase Tickets Insert Error:', tErr);
+      } else {
+        console.log('✅ Supabase Ticket inserted successfully:', ticketCode);
+      }
 
       const { error: tlErr } = await supabase.from('timeline_events').insert({
         cluster_id: clusterId,
+        ticket_id: ticketUuid,
         type: 'submitted',
         message: `Report ${ticketCode} received and verified. Assigned to ${dept.name}.`,
         public: true,
@@ -688,6 +848,8 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     } catch (err) {
       console.error('🚨 Supabase database synchronization exception:', err);
     }
+  } else {
+    console.warn('⚠️ Supabase client is not connected! Ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are configured.');
   }
 
   persistClusters();
@@ -794,10 +956,11 @@ const getHeuristicAI = (category: string, lat: number, lng: number, description:
   };
 };
 
-export const trackTicket = (ticketCode: string, mobileLast4: string) => {
+export const trackTicket = async (ticketCode: string, mobileLast4: string) => {
   const cleanCode = ticketCode.trim().toUpperCase();
   const cleanPhone = mobileLast4.trim();
 
+  // 1. Check in memory first
   for (const cluster of clustersData) {
     const foundTicket = cluster.tickets?.find(
       (t) => t.ticket_code.toUpperCase() === cleanCode && t.mobile.endsWith(cleanPhone)
@@ -811,6 +974,27 @@ export const trackTicket = (ticketCode: string, mobileLast4: string) => {
       };
     }
   }
+
+  // 2. Not found in memory — fetch live from Supabase (for multi-browser / other localhost)
+  try {
+    const liveClusters = await fetchLiveClusters();
+    for (const cluster of liveClusters) {
+      const foundTicket = cluster.tickets?.find(
+        (t) => t.ticket_code.toUpperCase() === cleanCode && t.mobile.endsWith(cleanPhone)
+      );
+      if (foundTicket) {
+        return {
+          ticket: foundTicket,
+          cluster: cluster,
+          timeline: cluster.timeline || [],
+          canReopen: cluster.status === 'closed' && isWithinReopenWindow(cluster.closed_at),
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Live track fetch failed:', err);
+  }
+
   return null;
 };
 
@@ -822,7 +1006,7 @@ export const isWithinReopenWindow = (closedAt?: string): boolean => {
 };
 
 export const reopenTicket = async (ticketCode: string, mobileLast4: string, reason: string, proofPhoto: File | Blob) => {
-  const result = trackTicket(ticketCode, mobileLast4);
+  const result = await trackTicket(ticketCode, mobileLast4);
   if (!result) throw new Error('Ticket not found or mobile digits did not match.');
   if (result.cluster.status !== 'closed') throw new Error('Only closed tickets can be reopened.');
   if (!isWithinReopenWindow(result.cluster.closed_at)) throw new Error('Reopen window (5 days) has expired.');
