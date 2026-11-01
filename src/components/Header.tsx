@@ -1,14 +1,14 @@
 import React from 'react';
-import { ShieldAlert, MapPin, Search, PlusCircle, LayoutDashboard, Sliders, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { ShieldAlert, MapPin, Search, PlusCircle, LayoutDashboard, ShieldCheck, Database, Sparkles } from 'lucide-react';
 
 interface HeaderProps {
   currentTab: string;
   setCurrentTab: (tab: string) => void;
   isAdmin: boolean;
   setIsAdmin: (val: boolean) => void;
-  openConfigModal: () => void;
   verificationCount: number;
   hasGeminiKey?: boolean;
+  isDbConnected?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -16,9 +16,9 @@ export const Header: React.FC<HeaderProps> = ({
   setCurrentTab,
   isAdmin,
   setIsAdmin,
-  openConfigModal,
   verificationCount,
   hasGeminiKey = false,
+  isDbConnected = false,
 }) => {
   return (
     <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
@@ -133,20 +133,36 @@ export const Header: React.FC<HeaderProps> = ({
               {isAdmin ? '🛡️ Admin Mode' : '👤 Citizen View'}
             </button>
 
-            {/* AI Status Pill & Config Button */}
-            <button
-              onClick={openConfigModal}
-              title="Configure Gemini AI Key & Supabase Endpoints"
-              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                hasGeminiKey
-                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
-                  : 'bg-amber-950/30 border-amber-500/30 text-amber-300 hover:bg-amber-900/30'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${hasGeminiKey ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span className="hidden md:inline">{hasGeminiKey ? 'Gemini 3.6 Active' : 'Setup AI Keys'}</span>
-              <Sliders className="w-3.5 h-3.5 ml-0.5 opacity-80" />
-            </button>
+            {/* Connected Indicators: Database & AI */}
+            <div className="flex items-center space-x-1.5 pl-1">
+              {/* Database Status Badge */}
+              <div
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                  isDbConnected
+                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    : 'bg-red-950/60 border-red-500/40 text-red-300'
+                }`}
+                title={isDbConnected ? 'Supabase Database: Connected & Synchronized' : 'Supabase Database: Disconnected'}
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-400" />
+                <span className={`w-1.5 h-1.5 rounded-full ${isDbConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                <span className="hidden md:inline font-mono text-[11px]">{isDbConnected ? 'DB: Connected' : 'DB: Offline'}</span>
+              </div>
+
+              {/* AI Status Badge (Display only - keys configured securely via .env) */}
+              <div
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border select-none ${
+                  hasGeminiKey
+                    ? 'bg-cyan-950/60 border-cyan-500/40 text-cyan-300'
+                    : 'bg-amber-950/50 border-amber-500/40 text-amber-300'
+                }`}
+                title={hasGeminiKey ? 'Gemini 3.6 Flash Vision Engine: Active via .env' : 'Gemini AI Vision Engine: Offline'}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span className={`w-1.5 h-1.5 rounded-full ${hasGeminiKey ? 'bg-cyan-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span className="hidden md:inline font-mono text-[11px]">{hasGeminiKey ? 'AI: Connected' : 'AI: Offline'}</span>
+              </div>
+            </div>
           </nav>
         </div>
       </div>

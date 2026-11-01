@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { ReportForm } from './components/ReportForm';
 import { TrackTicketView } from './components/TrackTicketView';
 import { PublicMapView } from './components/PublicMapView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { TicketSuccessModal } from './components/TicketSuccessModal';
-import { ConfigModal } from './components/ConfigModal';
 import { SubmissionResponse } from './types';
-import { getClusters } from './services/api';
+import { getClusters, fetchLiveClusters } from './services/api';
+import { getSupabaseClient } from './services/supabaseClient';
 import { getAppConfig, AppConfig } from './config/env';
 
 export const App: React.FC = () => {
@@ -15,9 +15,36 @@ export const App: React.FC = () => {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [successResponse, setSuccessResponse] = useState<SubmissionResponse | null>(null);
   const [trackInitialCode, setTrackInitialCode] = useState<string>('');
-  const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
   const [config, setConfig] = useState<AppConfig>(getAppConfig());
   const [refreshKey, setRefreshKey] = useState<number>(0);
+  const [isDbConnected, setIsDbConnected] = useState<boolean>(false);
+
+  // Sync with live Supabase on mount and config updates
+  useEffect(() => {
+    let isMounted = true;
+    const checkDbAndSync = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        if (isMounted) setIsDbConnected(false);
+        return;
+      }
+
+      try {
+        const { error } = await supabase.from('clusters').select('id').limit(1);
+        if (isMounted) {
+          setIsDbConnected(!error);
+        }
+        await fetchLiveClusters();
+      } catch (err) {
+        if (isMounted) setIsDbConnected(false);
+      }
+    };
+
+    checkDbAndSync();
+    return () => {
+      isMounted = false;
+    };
+  }, [config, refreshKey]);
 
   const clusters = getClusters();
   const verificationCount = clusters.filter(
@@ -47,9 +74,9 @@ export const App: React.FC = () => {
         setCurrentTab={setCurrentTab}
         isAdmin={isAdmin}
         setIsAdmin={setIsAdmin}
-        openConfigModal={() => setIsConfigOpen(true)}
         verificationCount={verificationCount}
         hasGeminiKey={Boolean(config.geminiApiKey?.trim())}
+        isDbConnected={isDbConnected}
       />
 
       <main className="flex-1 pb-16">
@@ -58,7 +85,6 @@ export const App: React.FC = () => {
             key={`report-${refreshKey}-${config.geminiApiKey}`}
             config={config}
             onSuccess={handleReportSuccess}
-            onOpenConfig={() => setIsConfigOpen(true)}
           />
         )}
         {currentTab === 'track' && <TrackTicketView key={`track-${refreshKey}`} initialCode={trackInitialCode} />}
@@ -79,14 +105,6 @@ export const App: React.FC = () => {
           response={successResponse}
           onTrack={handleTrackFromSuccess}
           onClose={() => setSuccessResponse(null)}
-        />
-      )}
-
-      {/* Config Drawer / Modal */}
-      {isConfigOpen && (
-        <ConfigModal
-          onClose={() => setIsConfigOpen(false)}
-          onSaved={handleConfigSaved}
         />
       )}
 

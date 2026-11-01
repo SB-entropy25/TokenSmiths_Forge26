@@ -61,10 +61,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     loadData();
   }, []);
 
-  const handleApplyActions = () => {
+  const handleApplyActions = async () => {
     if (!selectedCluster) return;
 
-    updateClusterAdmin(selectedCluster.id, {
+    await updateClusterAdmin(selectedCluster.id, {
       status: newStatus || undefined,
       department_name: assignDept || undefined,
       admin_message: adminNote || undefined,
@@ -77,14 +77,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     setAdminNote('');
     setOverrideSeverity(0);
     setOverrideReason('');
-    loadData();
+    await loadData();
     onRefresh();
   };
 
-  const handleVerifyDecision = (ticketId: string, approve: boolean) => {
-    resolveVerificationQueue(ticketId, approve, rejectReason || (approve ? 'Verified genuine' : 'Failed authenticity test'));
+  const handleVerifyDecision = async (ticketId: string, approve: boolean) => {
+    await resolveVerificationQueue(ticketId, approve, rejectReason || (approve ? 'Verified genuine' : 'Failed authenticity test'));
     setRejectReason('');
-    loadData();
+    await loadData();
     onRefresh();
   };
 

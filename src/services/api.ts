@@ -10,28 +10,19 @@ import {
   DangerAspects,
 } from '../types';
 
-// In-memory cache synced with localStorage (strictly user-entered only, zero dummy entries)
-let clustersData: Cluster[] = (() => {
-  try {
-    localStorage.removeItem('CIVIC_CLUSTERS_CACHE'); // Purge legacy dummy clusters
-    const saved = localStorage.getItem('CIVIC_USER_CLUSTERS');
-    if (saved) {
-      const parsed: Cluster[] = JSON.parse(saved);
-      // Strictly filter out any hardcoded legacy clusters (e.g. cluster-101, cluster-102)
-      return parsed.filter((c) => !c.id.startsWith('cluster-10'));
-    }
-  } catch (e) {
-    console.warn('Failed to parse cached clusters', e);
-  }
-  return [];
-})();
+// In-memory runtime cache populated directly from Supabase (Zero localStorage reliance)
+let clustersData: Cluster[] = [];
+
+// Clean up any old localStorage artifacts
+try {
+  localStorage.removeItem('CIVIC_CLUSTERS_CACHE');
+  localStorage.removeItem('CIVIC_USER_CLUSTERS');
+} catch (e) {
+  // Ignore
+}
 
 const persistClusters = () => {
-  try {
-    localStorage.setItem('CIVIC_USER_CLUSTERS', JSON.stringify(clustersData));
-  } catch (e) {
-    console.warn('Failed to persist clusters', e);
-  }
+  // No-op: Supabase is the single source of truth!
 };
 
 // Fetch clusters (syncs live from Supabase if connected, else uses local cache)
@@ -110,11 +101,8 @@ export const fetchLiveClusters = async (): Promise<Cluster[]> => {
       };
     });
 
-    if (formatted.length > 0) {
-      clustersData = formatted;
-      persistClusters();
-      return formatted;
-    }
+    clustersData = formatted;
+    return formatted;
   } catch (err) {
     console.warn('Exception during live Supabase fetch:', err);
   }
@@ -491,10 +479,8 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   // DIRECT PIPELINE (NO n8n REQUIRED!)
   // ==========================================
 
-  // Step 1: Upload photos directly & run binary scan for AI generator metadata
-  const [wideUrl, nearUrl, wideScan, nearScan] = await Promise.all([
-    uploadPhotoDirect(payload.wide_photo, 'reports'),
-    uploadPhotoDirect(payload.near_photo, 'reports'),
+  // Step 1: Run local binary metadata scan for AI generator artifacts (ZERO upload yet!)
+  const [wideScan, nearScan] = await Promise.all([
     scanImageForAiArtifacts(payload.wide_photo),
     scanImageForAiArtifacts(payload.near_photo),
   ]);
@@ -605,6 +591,16 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
       message: rejectionMsg,
     };
   }
+
+  // =========================================================================
+  // VERIFICATION PASSED: Genuine civic hazard confirmed.
+  // ONLY NOW do we upload the photos to Supabase Storage & store in database!
+  // (Failed or rejected submissions store ZERO images and ZERO database rows)
+  // =========================================================================
+  const [wideUrl, nearUrl] = await Promise.all([
+    uploadPhotoDirect(payload.wide_photo, 'reports'),
+    uploadPhotoDirect(payload.near_photo, 'reports'),
+  ]);
 
   // Step 4: Context-based scoring boost (formula: final = min(5, s_ai + context))
   let severityFinal = aiResult.severity_ai;
@@ -1012,27 +1008,56 @@ export const reopenTicket = async (ticketCode: string, mobileLast4: string, reas
   if (!isWithinReopenWindow(result.cluster.closed_at)) throw new Error('Reopen window (5 days) has expired.');
 
   const cluster = result.cluster;
-  cluster.status = 'reopened';
-  cluster.reopen_count = (cluster.reopen_count || 0) + 1;
-  cluster.severity_current = Math.min(5, cluster.severity_current + 1);
-  cluster.last_escalated_at = new Date().toISOString();
-  cluster.reminder_sent = false;
+  const supabase = getSupabaseClient();
 
-  cluster.timeline?.push({
-    id: `tl-reopen-${Date.now()}`,
-    cluster_id: cluster.id,
-    type: 'reopened',
-    message: `Ticket reopened by citizen: "${reason}". Severity escalated to Level ${cluster.severity_current}.`,
-    public: true,
-    actor: 'Citizen Reopen Request',
-    created_at: new Date().toISOString(),
-  });
+  let proofUrl = '';
+  if (proofPhoto) {
+    try {
+      proofUrl = await uploadPhotoDirect(proofPhoto, 'proofs');
+    } catch (err) {
+      console.warn('Proof photo upload failed:', err);
+    }
+  }
 
-  persistClusters();
+  const newSeverity = Math.min(5, cluster.severity_current + 1);
+  const newReopenCount = (cluster.reopen_count || 0) + 1;
+
+  if (supabase) {
+    try {
+      await supabase.from('clusters').update({
+        status: 'reopened',
+        reopen_count: newReopenCount,
+        severity_current: newSeverity,
+        last_escalated_at: new Date().toISOString(),
+        reminder_sent: false,
+      }).eq('id', cluster.id);
+
+      await supabase.from('reopen_requests').insert({
+        ticket_code: ticketCode,
+        cluster_id: cluster.id,
+        reason,
+        proof_photo_url: proofUrl,
+      });
+
+      await supabase.from('timeline_events').insert({
+        cluster_id: cluster.id,
+        ticket_id: result.ticket.id,
+        type: 'reopened',
+        message: `Ticket reopened by citizen: "${reason}". Severity escalated to Level ${newSeverity}.`,
+        public: true,
+        actor: 'Citizen Reopen Request',
+      });
+
+      await fetchLiveClusters();
+    } catch (err) {
+      console.error('Exception updating Supabase on reopen:', err);
+    }
+  }
+
   return { success: true, cluster };
 };
 
-export const updateClusterAdmin = (
+export const updateClusterAdmin = async (
   clusterId: string,
   updates: {
     status?: any;
@@ -1043,97 +1068,102 @@ export const updateClusterAdmin = (
     override_reason?: string;
   }
 ) => {
-  const cluster = clustersData.find((c) => c.id === clusterId);
-  if (!cluster) return null;
+  const supabase = getSupabaseClient();
 
-  if (updates.status) {
-    cluster.status = updates.status;
-    if (updates.status === 'closed') {
-      cluster.closed_at = new Date().toISOString();
-      if (updates.proof_photo_url) {
-        cluster.proof_photo_url = updates.proof_photo_url;
+  if (supabase) {
+    try {
+      const dbUpdates: any = {};
+      if (updates.status) {
+        dbUpdates.status = updates.status;
+        if (updates.status === 'closed') {
+          dbUpdates.closed_at = new Date().toISOString();
+          if (updates.proof_photo_url) {
+            dbUpdates.proof_photo_url = updates.proof_photo_url;
+          }
+        }
       }
+      if (updates.department_name) {
+        dbUpdates.department_name = updates.department_name;
+      }
+      if (updates.override_severity) {
+        dbUpdates.severity_current = updates.override_severity;
+      }
+
+      if (Object.keys(dbUpdates).length > 0) {
+        const { error } = await supabase.from('clusters').update(dbUpdates).eq('id', clusterId);
+        if (error) console.error('Supabase update cluster error:', error);
+      }
+
+      if (updates.override_severity) {
+        await supabase.from('timeline_events').insert({
+          cluster_id: clusterId,
+          type: 'escalated',
+          message: `Admin manually adjusted severity to Level ${updates.override_severity}. Reason: ${updates.override_reason || 'Field evaluation'}`,
+          public: false,
+          actor: 'Admin',
+        });
+      }
+
+      if (updates.admin_message) {
+        await supabase.from('timeline_events').insert({
+          cluster_id: clusterId,
+          type: 'admin_message',
+          message: updates.admin_message,
+          public: true,
+          actor: 'Municipal Officer',
+        });
+      }
+
+      if (updates.status) {
+        await supabase.from('timeline_events').insert({
+          cluster_id: clusterId,
+          type: updates.status === 'closed' ? 'closed' : updates.status === 'assigned' ? 'assigned' : 'admin_message',
+          message: `Status updated to ${updates.status.toUpperCase()}${updates.proof_photo_url ? ' with resolution photo attached.' : '.'}`,
+          public: true,
+          actor: 'Municipal Administration',
+        });
+      }
+
+      // Sync latest clusters directly from Supabase
+      await fetchLiveClusters();
+    } catch (err) {
+      console.error('Exception during updateClusterAdmin in Supabase:', err);
     }
   }
 
-  if (updates.department_name) {
-    cluster.department_name = updates.department_name;
-  }
-
-  if (updates.override_severity) {
-    cluster.severity_current = updates.override_severity;
-    cluster.timeline?.push({
-      id: `tl-ovr-${Date.now()}`,
-      cluster_id: cluster.id,
-      type: 'escalated',
-      message: `Admin manually adjusted severity to Level ${updates.override_severity}. Reason: ${updates.override_reason || 'Field evaluation'}`,
-      public: false,
-      actor: 'Admin',
-      created_at: new Date().toISOString(),
-    });
-  }
-
-  if (updates.admin_message) {
-    cluster.timeline?.push({
-      id: `tl-msg-${Date.now()}`,
-      cluster_id: cluster.id,
-      type: 'admin_message',
-      message: updates.admin_message,
-      public: true,
-      actor: 'Municipal Officer',
-      created_at: new Date().toISOString(),
-    });
-  }
-
-  if (updates.status) {
-    cluster.timeline?.push({
-      id: `tl-st-${Date.now()}`,
-      cluster_id: cluster.id,
-      type: updates.status === 'closed' ? 'closed' : updates.status === 'assigned' ? 'assigned' : 'admin_message',
-      message: `Status updated to ${updates.status.toUpperCase()}${updates.proof_photo_url ? ' with resolution photo attached.' : '.'}`,
-      public: true,
-      actor: 'Municipal Administration',
-      created_at: new Date().toISOString(),
-    });
-  }
-
-  persistClusters();
-  return cluster;
+  return clustersData.find((c) => c.id === clusterId) || null;
 };
 
-export const resolveVerificationQueue = (ticketId: string, approve: boolean, reason: string) => {
-  for (const cluster of clustersData) {
-    const t = cluster.tickets?.find((x) => x.id === ticketId);
-    if (t) {
-      if (approve) {
-        t.ai_flag = false;
-        cluster.status = 'received';
-        cluster.timeline?.push({
-          id: `tl-vapp-${Date.now()}`,
-          cluster_id: cluster.id,
-          ticket_id: t.id,
-          type: 'ai_checked',
-          message: `Officer approved held report: "${reason || 'Verified genuine by officer inspection'}".`,
-          public: true,
-          actor: 'Admin Verification',
-          created_at: new Date().toISOString(),
-        });
-      } else {
-        cluster.status = 'rejected';
-        cluster.timeline?.push({
-          id: `tl-vrej-${Date.now()}`,
-          cluster_id: cluster.id,
-          ticket_id: t.id,
-          type: 'closed',
-          message: `Report rejected during verification: "${reason || 'Photo failed authenticity check'}".`,
-          public: true,
-          actor: 'Admin Verification',
-          created_at: new Date().toISOString(),
-        });
-      }
-      persistClusters();
+export const resolveVerificationQueue = async (ticketId: string, approve: boolean, reason: string) => {
+  const supabase = getSupabaseClient();
+  const cluster = clustersData.find((c) => c.tickets?.some((x) => x.id === ticketId));
+  if (!cluster) return false;
+
+  const t = cluster.tickets?.find((x) => x.id === ticketId);
+
+  if (supabase) {
+    try {
+      const newStatus = approve ? 'received' : 'rejected';
+      await supabase.from('clusters').update({ status: newStatus }).eq('id', cluster.id);
+      await supabase.from('tickets').update({ ai_flag: false }).eq('id', ticketId);
+
+      await supabase.from('timeline_events').insert({
+        cluster_id: cluster.id,
+        ticket_id: ticketId,
+        type: approve ? 'ai_checked' : 'closed',
+        message: approve
+          ? `Officer approved held report: "${reason || 'Verified genuine by officer inspection'}".`
+          : `Report rejected during verification: "${reason || 'Photo failed authenticity check'}".`,
+        public: true,
+        actor: 'Admin Verification',
+      });
+
+      await fetchLiveClusters();
       return true;
+    } catch (err) {
+      console.error('Exception during resolveVerificationQueue in Supabase:', err);
     }
   }
+
   return false;
 };

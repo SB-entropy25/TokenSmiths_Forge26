@@ -7,10 +7,9 @@ import { getAppConfig, AppConfig } from '../config/env';
 interface ReportFormProps {
   onSuccess: (response: SubmissionResponse) => void;
   config?: AppConfig;
-  onOpenConfig?: () => void;
 }
 
-export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpenConfig }) => {
+export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config }) => {
   const [category, setCategory] = useState<IssueCategory>('pothole');
   const activeGeminiKey = (config?.geminiApiKey || getAppConfig().geminiApiKey || '').trim();
   const [description, setDescription] = useState('');
@@ -162,14 +161,10 @@ export const ReportForm: React.FC<ReportFormProps> = ({ onSuccess, config, onOpe
                 <span>🟢 Gemini 3.6 Flash Vision Active: Strict Multimodal Verification Enabled</span>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={onOpenConfig}
-                className="inline-flex items-center space-x-2 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl text-amber-400 text-xs font-semibold transition-all cursor-pointer text-left"
-              >
+              <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400 text-xs font-semibold">
                 <Key className="w-4 h-4 text-amber-400" />
-                <span>⚙️ Local Heuristic Active: Click here to enter your free Gemini API key for live photo inspection</span>
-              </button>
+                <span>⚙️ Gemini Key Not Configured in .env: Running Heuristic Safety Rules</span>
+              </div>
             )}
           </div>
         </div>
