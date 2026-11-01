@@ -11,7 +11,6 @@ import {
   Camera,
   Layers,
   Sparkles,
-  Zap,
   ExternalLink,
   Info,
   RefreshCw,
@@ -19,6 +18,11 @@ import {
   Check,
   XCircle,
   Inbox,
+  Flame,
+  Zap,
+  Calendar,
+  ChevronRight,
+  AlertCircle,
 } from 'lucide-react';
 import { Cluster, Ticket, IssueCategory } from '../types';
 import { getClusters, fetchLiveClusters, updateClusterAdmin, resolveVerificationQueue, getDepartments } from '../services/api';
@@ -31,7 +35,6 @@ interface AdminDashboardProps {
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRefresh }) => {
   const [clusters, setClusters] = useState<Cluster[]>(getClusters());
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
-  const [slaDivisor, setSlaDivisor] = useState<number>(1);
   const [loading, setLoading] = useState(false);
 
   // Action Drawer / Modal states
@@ -88,6 +91,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     onRefresh();
   };
 
+  const getClusterAgeDays = (createdAt: string) => {
+    if (!createdAt) return 0;
+    const ms = Date.now() - new Date(createdAt).getTime();
+    return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
+  };
+
+  const pendingClusters = clusters.filter(
+    (c) => c.status !== 'closed' && c.status !== 'rejected'
+  );
+
+  const under24hCount = pendingClusters.filter((c) => getClusterAgeDays(c.created_at) < 1).length;
+  const days1to2Count = pendingClusters.filter((c) => {
+    const days = getClusterAgeDays(c.created_at);
+    return days >= 1 && days < 3;
+  }).length;
+  const overdue3DaysClusters = pendingClusters.filter((c) => getClusterAgeDays(c.created_at) >= 3);
+  const escalatedClusters = pendingClusters.filter(
+    (c) => c.escalation_requested || c.timeline?.some((t) => t.type === 'escalated')
+  );
+
+  const handleBumpSeverity = async (cluster: Cluster) => {
+    const nextSev = Math.min(5, cluster.severity_current + 1);
+    await updateClusterAdmin(cluster.id, {
+      override_severity: nextSev,
+      override_reason: `Auto-escalated to Level ${nextSev} due to ${getClusterAgeDays(cluster.created_at)} days pending inactivity.`,
+    });
+    await loadData();
+    onRefresh();
+  };
+
+  const handleChangeSeverity = async (cluster: Cluster, newLevel: number) => {
+    await updateClusterAdmin(cluster.id, {
+      override_severity: newLevel,
+      override_reason: `Officer adjusted severity to Level ${newLevel} on overdue review.`,
+    });
+    await loadData();
+    onRefresh();
+  };
+
   const columns = [5, 4, 3, 2, 1];
 
   const heldClusters = clusters.filter(
@@ -97,7 +139,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
 
-      {/* 2. Top Banner: Command Room & SLA Demo Speedup */}
+      {/* 2. Top Banner: Command Room */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
@@ -109,34 +151,171 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
             {clusters.length} PostGIS cluster issues with automated SLA escalation.
           </p>
         </div>
+      </div>
 
-        {/* Live Demo SLA Speedup Controller */}
-        <div className="bg-slate-800/80 border border-indigo-500/30 p-2.5 rounded-xl flex items-center space-x-3">
-          <div className="text-xs">
-            <span className="text-indigo-400 font-bold block flex items-center space-x-1">
-              <Zap className="w-3.5 h-3.5" />
-              <span>Hackathon Demo Timer:</span>
-            </span>
-            <span className="text-[10px] text-slate-400">
-              {slaDivisor === 360 ? '⚡ 360x Speed (6h SLA = 1 min)' : '🕒 1x Real-World Clock'}
+      {/* 2.5 Aging & Inactivity Breakdown Bar */}
+      {currentTab !== 'admin-verify' && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow-md">
+            <span className="text-[11px] font-semibold text-slate-400 block uppercase">Active Complaints</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xl font-extrabold text-white">{pendingClusters.length}</span>
+              <Inbox className="w-5 h-5 text-indigo-400" />
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow-md">
+            <span className="text-[11px] font-semibold text-slate-400 block uppercase">&lt; 24h (Fresh)</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xl font-extrabold text-emerald-400">{under24hCount}</span>
+              <Clock className="w-5 h-5 text-emerald-400" />
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow-md">
+            <span className="text-[11px] font-semibold text-slate-400 block uppercase">1 - 2 Days In Progress</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-xl font-extrabold text-blue-400">{days1to2Count}</span>
+              <Calendar className="w-5 h-5 text-blue-400" />
+            </div>
+          </div>
+
+          <div
+            className={`rounded-xl p-3.5 shadow-md border transition-all ${
+              overdue3DaysClusters.length > 0
+                ? 'bg-amber-950/40 border-amber-500/50 text-amber-300'
+                : 'bg-slate-900 border-slate-800 text-slate-400'
+            }`}
+          >
+            <span className="text-[11px] font-semibold block uppercase">≥ 3 Days (Action Needed)</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className={`text-xl font-extrabold ${overdue3DaysClusters.length > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                {overdue3DaysClusters.length}
+              </span>
+              <AlertTriangle className={`w-5 h-5 ${overdue3DaysClusters.length > 0 ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
+            </div>
+          </div>
+
+          <div
+            className={`rounded-xl p-3.5 shadow-md border transition-all ${
+              escalatedClusters.length > 0
+                ? 'bg-red-950/40 border-red-500/50 text-red-300'
+                : 'bg-slate-900 border-slate-800 text-slate-400'
+            }`}
+          >
+            <span className="text-[11px] font-semibold block uppercase">Citizen Escalations</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className={`text-xl font-extrabold ${escalatedClusters.length > 0 ? 'text-red-400' : 'text-slate-300'}`}>
+                {escalatedClusters.length}
+              </span>
+              <Flame className={`w-5 h-5 ${escalatedClusters.length > 0 ? 'text-red-400 animate-pulse' : 'text-slate-500'}`} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2.6 Overdue Inactivity Action Alert Panel (for complaints 3+ days pending) */}
+      {currentTab !== 'admin-verify' && overdue3DaysClusters.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-950/50 via-slate-900 to-slate-900 border-2 border-amber-500/40 rounded-2xl p-5 shadow-2xl space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-amber-500/20 pb-3">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-amber-400 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                  <span>Urgent Inactivity Queue: {overdue3DaysClusters.length} Complaints Pending &ge; 3 Days</span>
+                </h3>
+                <p className="text-xs text-amber-200/70">
+                  These complaints have had no closure for 3+ days. Bump severity level or reassign crews to prevent SLA breach.
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold self-start sm:self-auto">
+              Immediate Action Required
             </span>
           </div>
 
-          <button
-            onClick={() => {
-              const next = slaDivisor === 1 ? 360 : 1;
-              setSlaDivisor(next);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              slaDivisor === 360
-                ? 'bg-amber-500 text-slate-950 font-extrabold shadow-md shadow-amber-500/30'
-                : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-            }`}
-          >
-            {slaDivisor === 360 ? '⚡ Active (360x)' : 'Set 360x Demo'}
-          </button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {overdue3DaysClusters.map((cluster) => {
+              const ageDays = getClusterAgeDays(cluster.created_at);
+              const isEscalated = cluster.escalation_requested || cluster.timeline?.some((t) => t.type === 'escalated');
+              return (
+                <div
+                  key={cluster.id}
+                  className="bg-slate-800/90 border border-slate-700 hover:border-amber-500/50 rounded-xl p-4 flex flex-col justify-between space-y-3 transition-all"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 bg-slate-900 rounded">
+                        {cluster.category.replace('_', ' ')}
+                      </span>
+                      <div className="flex items-center space-x-1.5">
+                        {isEscalated && (
+                          <span className="text-[10px] font-extrabold text-white bg-red-600 px-1.5 py-0.5 rounded flex items-center space-x-1 animate-pulse">
+                            <Flame className="w-3 h-3 text-amber-200" />
+                            <span>ESCALATED</span>
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                          ⚠️ {ageDays} days pending
+                        </span>
+                      </div>
+                    </div>
+
+                    <h4 className="text-xs font-bold text-white line-clamp-1">{cluster.address}</h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">
+                      Status: <span className="capitalize text-slate-200">{cluster.status.replace('_', ' ')}</span> • Assigned: {cluster.department_name || 'Unassigned'}
+                    </p>
+                  </div>
+
+                  {/* Action Controls: Severity Bump & Drawer Opener */}
+                  <div className="pt-2.5 border-t border-slate-700/60 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center space-x-1.5 text-xs">
+                      <span className="text-[11px] text-slate-400">Severity:</span>
+                      <select
+                        value={cluster.severity_current}
+                        onChange={(e) => handleChangeSeverity(cluster, parseInt(e.target.value))}
+                        className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                        title="Change Severity Level"
+                      >
+                        <option value={1}>Level 1 (Minor)</option>
+                        <option value={2}>Level 2 (Low)</option>
+                        <option value={3}>Level 3 (Medium)</option>
+                        <option value={4}>Level 4 (High)</option>
+                        <option value={5}>Level 5 (Critical)</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center space-x-1.5">
+                      {cluster.severity_current < 5 && (
+                        <button
+                          type="button"
+                          onClick={() => handleBumpSeverity(cluster)}
+                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1 transition-all shadow cursor-pointer"
+                          title="Increase severity by 1 due to inactivity"
+                        >
+                          <Zap className="w-3 h-3" />
+                          <span>+1 Level</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCluster(cluster)}
+                        className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-all cursor-pointer"
+                      >
+                        <span>Manage</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {clusters.length === 0 && currentTab !== 'admin-verify' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
@@ -327,16 +506,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                       onClick={() => setSelectedCluster(cluster)}
                       className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/50 rounded-xl p-3.5 cursor-pointer transition-all shadow-md space-y-2 group"
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-1 flex-wrap">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 bg-slate-900 rounded">
                           {cluster.category.replace('_', ' ')}
                         </span>
-                        {cluster.flag_count > 1 && (
-                          <span className="text-[10px] font-extrabold text-amber-300 bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 rounded-md flex items-center space-x-1">
-                            <Flag className="w-3 h-3" />
-                            <span>{cluster.flag_count} flags</span>
-                          </span>
-                        )}
+                        <div className="flex items-center space-x-1">
+                          {(cluster.escalation_requested || cluster.timeline?.some((t) => t.type === 'escalated')) && (
+                            <span className="text-[10px] font-extrabold text-white bg-red-600 border border-red-400 px-1.5 py-0.5 rounded-md flex items-center space-x-0.5 animate-pulse" title="Citizen Escalation Requested">
+                              <Flame className="w-3 h-3 text-amber-200" />
+                              <span>ESCALATED</span>
+                            </span>
+                          )}
+
+                          {getClusterAgeDays(cluster.created_at) >= 3 && (
+                            <span className="text-[10px] font-bold text-amber-300 bg-amber-950/80 border border-amber-500/50 px-1.5 py-0.5 rounded-md flex items-center space-x-0.5" title={`${getClusterAgeDays(cluster.created_at)} days without resolution`}>
+                              <AlertTriangle className="w-3 h-3 text-amber-400" />
+                              <span>{getClusterAgeDays(cluster.created_at)}d</span>
+                            </span>
+                          )}
+
+                          {cluster.flag_count > 1 && (
+                            <span className="text-[10px] font-extrabold text-amber-300 bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 rounded-md flex items-center space-x-1">
+                              <Flag className="w-3 h-3" />
+                              <span>{cluster.flag_count} flags</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <p className="text-xs font-semibold text-white group-hover:text-emerald-300 transition-colors line-clamp-2">
@@ -384,6 +579,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                 ✕
               </button>
             </div>
+
+            {/* Citizen Escalation Alert Banner */}
+            {(selectedCluster.escalation_requested || selectedCluster.timeline?.some((t) => t.type === 'escalated')) && (
+              <div className="p-3.5 bg-red-950/60 border border-red-500/50 rounded-xl flex items-start space-x-3 text-xs">
+                <Flame className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5 animate-pulse" />
+                <div>
+                  <span className="font-extrabold text-red-300 block uppercase tracking-wider">
+                    🚨 Citizen Escalation Request Active
+                  </span>
+                  <p className="mt-1 text-slate-200">
+                    {selectedCluster.timeline?.filter((t) => t.type === 'escalated').slice(-1)[0]?.message || 'Citizen reported unexpected delay or escalating danger. Priority dispatch recommended.'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Photos Grid with Fallbacks & Direct Links */}
             {selectedCluster.tickets && selectedCluster.tickets.length > 0 && (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Search, ShieldAlert, CheckCircle, Clock, AlertTriangle, ArrowRight, RefreshCw, FileText, Camera, Check } from 'lucide-react';
-import { trackTicket, reopenTicket, isWithinReopenWindow } from '../services/api';
+import { Search, ShieldAlert, CheckCircle, Clock, AlertTriangle, ArrowRight, RefreshCw, FileText, Camera, Check, Flame, Zap } from 'lucide-react';
+import { trackTicket, reopenTicket, requestTicketEscalation, isWithinReopenWindow } from '../services/api';
 import { generateTicketPdf } from '../utils/pdf';
 import { AiDiagnosticCard } from './AiDiagnosticCard';
 
@@ -23,11 +23,18 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
   const [reopening, setReopening] = useState(false);
   const [reopenSuccess, setReopenSuccess] = useState(false);
 
+  // Escalation Form
+  const [showEscalateModal, setShowEscalateModal] = useState(false);
+  const [escalateReason, setEscalateReason] = useState('');
+  const [escalating, setEscalating] = useState(false);
+  const [escalateSuccess, setEscalateSuccess] = useState(false);
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSearchResult(null);
     setReopenSuccess(false);
+    setEscalateSuccess(false);
 
     if (!ticketCode.trim()) {
       setErrorMessage('Please enter your Ticket ID (e.g. CP-2026-000001).');
@@ -73,6 +80,29 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
     } catch (err: any) {
       setReopening(false);
       alert(err.message || 'Failed to reopen ticket');
+    }
+  };
+
+  const handleEscalateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!escalateReason.trim()) {
+      alert('Please provide a reason describing why this issue requires urgent escalation.');
+      return;
+    }
+
+    setEscalating(true);
+    try {
+      await requestTicketEscalation(ticketCode, mobileLast4, escalateReason);
+      setEscalating(false);
+      setShowEscalateModal(false);
+      setEscalateSuccess(true);
+      setEscalateReason('');
+      // Refresh ticket state
+      const refreshed = await trackTicket(ticketCode, mobileLast4);
+      setSearchResult(refreshed);
+    } catch (err: any) {
+      setEscalating(false);
+      alert(err.message || 'Failed to request escalation');
     }
   };
 
@@ -148,6 +178,13 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
             <span>Ticket has been reopened and escalated to department lead.</span>
           </div>
         )}
+
+        {escalateSuccess && (
+          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/40 rounded-xl text-amber-300 text-xs flex items-center space-x-2">
+            <Flame className="w-4 h-4 text-orange-400 animate-pulse" />
+            <span>Escalation alert recorded and highlighted on the Municipal Command Console with top priority.</span>
+          </div>
+        )}
       </div>
 
       {/* Ticket Details & Timeline */}
@@ -166,6 +203,12 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
               </div>
               <div className="flex items-center space-x-2">
                 {statusBadge(searchResult.cluster.status)}
+                {(searchResult.cluster.escalation_requested || searchResult.timeline?.some((t: any) => t.type === 'escalated')) && (
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center space-x-1 animate-pulse" title="Citizen escalation requested and flagged on Officer Console">
+                    <Flame className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden sm:inline">ESCALATION ACTIVE</span>
+                  </span>
+                )}
                 <button
                   onClick={() => generateTicketPdf(searchResult.ticket, searchResult.cluster)}
                   className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center space-x-1"
@@ -284,27 +327,120 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
               </div>
             )}
 
-            {/* Public Timeline */}
-            <div className="mt-6 pt-5 border-t border-slate-800">
-              <h4 className="text-sm font-bold text-white mb-4 flex items-center space-x-2">
-                <Clock className="w-4 h-4 text-emerald-400" />
-                <span>Audited Timeline & Updates</span>
-              </h4>
-
-              <div className="space-y-4">
-                {searchResult.timeline.map((item: any) => (
-                  <div key={item.id} className="flex items-start space-x-3 text-xs">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 ring-4 ring-emerald-500/20 flex-shrink-0" />
-                    <div className="flex-1 bg-slate-800/40 p-3 rounded-xl border border-slate-750">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-semibold text-slate-200">{item.actor}</span>
-                        <span className="text-[10px] text-slate-500">{new Date(item.created_at).toLocaleString()}</span>
-                      </div>
-                      <p className="text-slate-300 text-xs leading-relaxed">{item.message}</p>
-                    </div>
+            {/* Active Grievance Escalation Action Card */}
+            {searchResult.cluster.status !== 'closed' && searchResult.cluster.status !== 'rejected' && (
+              <div className="my-5 p-4 bg-gradient-to-r from-amber-950/40 via-orange-950/25 to-slate-900 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                    <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Flame className="w-4 h-4 text-orange-400" />
+                      <span>Request Immediate Escalation</span>
+                    </span>
                   </div>
-                ))}
+                  <p className="text-xs text-slate-300 mt-1">
+                    Experiencing unexpected delay or condition worsening? Alert the municipal command room to prioritize field dispatch.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowEscalateModal(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md shadow-orange-900/40 flex-shrink-0 cursor-pointer"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Escalate Grievance</span>
+                </button>
               </div>
+            )}
+
+            {/* Public Timeline - Filtered strictly to the selected complaint ID */}
+            <div className="mt-6 pt-5 border-t border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-sm font-bold text-white flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-emerald-400" />
+                  <span>Audited Timeline & Updates</span>
+                </h4>
+                <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded">
+                  {searchResult.ticket.ticket_code}
+                </span>
+              </div>
+
+              {(() => {
+                const currentCode = (searchResult.ticket.ticket_code || '').toUpperCase();
+                const ticketEvents = (searchResult.timeline || []).filter((item: any) => {
+                  // If explicit ticket_id is present, it MUST match this ticket
+                  if (item.ticket_id && item.ticket_id !== searchResult.ticket.id) {
+                    return false;
+                  }
+                  // If the message references a complaint ID, it must match this ticket
+                  const codeMatches = item.message?.match(/CP-\d{4}-\d{5,6}/gi);
+                  if (codeMatches && codeMatches.length > 0) {
+                    const isForThisTicket = codeMatches.some(
+                      (code: string) => code.toUpperCase() === currentCode
+                    );
+                    if (!isForThisTicket) return false;
+                  }
+                  return true;
+                });
+
+                if (ticketEvents.length === 0) {
+                  return (
+                    <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4 text-center text-xs text-slate-400">
+                      Report registered and under municipal review. Updates for {currentCode} will appear here.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {ticketEvents.map((item: any) => {
+                      const isEscalation = item.type === 'escalated';
+                      const isReopened = item.type === 'reopened';
+                      return (
+                        <div key={item.id} className="flex items-start space-x-3 text-xs">
+                          <div
+                            className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                              isEscalation
+                                ? 'bg-amber-400 ring-4 ring-amber-400/30 animate-pulse'
+                                : isReopened
+                                ? 'bg-rose-400 ring-4 ring-rose-400/30'
+                                : 'bg-emerald-500 ring-4 ring-emerald-500/20'
+                            }`}
+                          />
+                          <div
+                            className={`flex-1 p-3 rounded-xl border ${
+                              isEscalation
+                                ? 'bg-gradient-to-r from-amber-950/30 to-slate-800/50 border-amber-500/40 shadow-sm'
+                                : isReopened
+                                ? 'bg-rose-950/20 border-rose-500/40'
+                                : 'bg-slate-800/40 border-slate-750'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center mb-1 flex-wrap gap-1">
+                              <div className="flex items-center space-x-1.5">
+                                <span className={`font-semibold ${isEscalation ? 'text-amber-300' : 'text-slate-200'}`}>
+                                  {item.actor}
+                                </span>
+                                {isEscalation && (
+                                  <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded text-[10px] font-bold flex items-center space-x-0.5">
+                                    <Flame className="w-2.5 h-2.5 text-orange-400" />
+                                    <span>Escalation Logged</span>
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500">{new Date(item.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className={`text-xs leading-relaxed ${isEscalation ? 'text-amber-100/90 font-medium' : 'text-slate-300'}`}>
+                              {item.message}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -367,6 +503,59 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
                   className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold"
                 >
                   {reopening ? 'Submitting to n8n...' : 'Submit Reopen Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Escalation Request Modal */}
+      {showEscalateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center space-x-3 border-b border-slate-800 pb-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                <Flame className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Escalate Complaint to Command Desk</h3>
+                <span className="text-xs text-slate-400 font-mono">{searchResult?.ticket.ticket_code}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              This request flags your complaint with top priority on the municipal command room dashboard and alerts active dispatchers.
+            </p>
+
+            <form onSubmit={handleEscalateSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-200 mb-1">
+                  Reason for Urgency / Delay Notice <span className="text-red-400">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={escalateReason}
+                  onChange={(e) => setEscalateReason(e.target.value)}
+                  placeholder="e.g. 3 days passed with no repair / Hazard is expanding and blocking traffic / Exposed live wire..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEscalateModal(false)}
+                  className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={escalating}
+                  className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-md shadow-amber-600/30"
+                >
+                  {escalating ? 'Sending Escalation...' : 'Dispatch Escalation Alert'}
                 </button>
               </div>
             </form>

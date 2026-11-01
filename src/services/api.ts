@@ -98,6 +98,9 @@ export const fetchLiveClusters = async (): Promise<Cluster[]> => {
           created_at: t.created_at,
         })),
         timeline: c.timeline_events || [],
+        escalation_requested: Boolean(
+          c.last_escalated_at || (c.timeline_events || []).some((ev: any) => ev.type === 'escalated')
+        ),
       };
     });
 
@@ -952,6 +955,29 @@ const getHeuristicAI = (category: string, lat: number, lng: number, description:
   };
 };
 
+// Helper: filter timeline events to only those relevant to the specific ticket
+const filterTimelineForTicket = (timeline: TimelineEvent[], ticket: Ticket): TimelineEvent[] => {
+  const currentCode = ticket.ticket_code.trim().toUpperCase();
+  return (timeline || []).filter((item) => {
+    // 1. If explicit ticket_id is present, it MUST match this ticket
+    if (item.ticket_id && item.ticket_id !== ticket.id) {
+      return false;
+    }
+    // 2. If the message explicitly mentions a ticket code (e.g. CP-2026-XXXXXX),
+    // it must match this ticket's code
+    const codeMatches = item.message.match(/CP-\d{4}-\d{5,6}/gi);
+    if (codeMatches && codeMatches.length > 0) {
+      const isForThisTicket = codeMatches.some(
+        (code) => code.toUpperCase() === currentCode
+      );
+      if (!isForThisTicket) {
+        return false;
+      }
+    }
+    return true;
+  });
+};
+
 export const trackTicket = async (ticketCode: string, mobileLast4: string) => {
   const cleanCode = ticketCode.trim().toUpperCase();
   const cleanPhone = mobileLast4.trim();
@@ -965,7 +991,7 @@ export const trackTicket = async (ticketCode: string, mobileLast4: string) => {
       return {
         ticket: foundTicket,
         cluster: cluster,
-        timeline: cluster.timeline || [],
+        timeline: filterTimelineForTicket(cluster.timeline || [], foundTicket),
         canReopen: cluster.status === 'closed' && isWithinReopenWindow(cluster.closed_at),
       };
     }
@@ -982,7 +1008,7 @@ export const trackTicket = async (ticketCode: string, mobileLast4: string) => {
         return {
           ticket: foundTicket,
           cluster: cluster,
-          timeline: cluster.timeline || [],
+          timeline: filterTimelineForTicket(cluster.timeline || [], foundTicket),
           canReopen: cluster.status === 'closed' && isWithinReopenWindow(cluster.closed_at),
         };
       }
@@ -1056,6 +1082,64 @@ export const reopenTicket = async (ticketCode: string, mobileLast4: string, reas
 
   return { success: true, cluster };
 };
+
+export const requestTicketEscalation = async (
+  ticketCode: string,
+  mobileLast4: string,
+  reason: string
+) => {
+  const result = await trackTicket(ticketCode, mobileLast4);
+  if (!result) throw new Error('Ticket not found or mobile digits did not match.');
+  if (result.cluster.status === 'closed' || result.cluster.status === 'rejected') {
+    throw new Error('Only active unresolved complaints can be escalated.');
+  }
+
+  const cluster = result.cluster;
+  const ticket = result.ticket;
+  const supabase = getSupabaseClient();
+  const escalationTime = new Date().toISOString();
+
+  // 1. Update in-memory cluster
+  cluster.last_escalated_at = escalationTime;
+  cluster.escalation_requested = true;
+  const escalationEvent: TimelineEvent = {
+    id: `tl-esc-${Date.now()}`,
+    cluster_id: cluster.id,
+    ticket_id: ticket.id,
+    type: 'escalated',
+    message: `Citizen Escalation Requested (${ticket.ticket_code}): ${reason.trim() || 'Immediate action requested due to pending delay or aggravated risk.'}`,
+    public: true,
+    actor: `Citizen (${ticket.name || 'Reporter'})`,
+    created_at: escalationTime,
+  };
+  cluster.timeline = cluster.timeline || [];
+  cluster.timeline.push(escalationEvent);
+
+  // 2. Persist to Supabase if available
+  if (supabase) {
+    try {
+      await supabase.from('clusters').update({
+        last_escalated_at: escalationTime,
+      }).eq('id', cluster.id);
+
+      await supabase.from('timeline_events').insert({
+        cluster_id: cluster.id,
+        ticket_id: ticket.id,
+        type: 'escalated',
+        message: escalationEvent.message,
+        public: true,
+        actor: escalationEvent.actor,
+      });
+
+      await fetchLiveClusters();
+    } catch (err) {
+      console.warn('Supabase escalation update warning:', err);
+    }
+  }
+
+  return { success: true, message: 'Escalation request delivered to municipal triage officers.' };
+};
+
 
 export const updateClusterAdmin = async (
   clusterId: string,

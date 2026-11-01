@@ -85,6 +85,7 @@ export interface Cluster {
   department_id?: string;
   eta_at?: string;
   last_escalated_at?: string;
+  escalation_requested?: boolean;
   reminder_sent: boolean;
   closed_at?: string;
   proof_photo_url?: string;

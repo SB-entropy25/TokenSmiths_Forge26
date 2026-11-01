@@ -3,23 +3,58 @@ import { Header } from './components/Header';
 import { ReportForm } from './components/ReportForm';
 import { TrackTicketView } from './components/TrackTicketView';
 import { PublicMapView } from './components/PublicMapView';
-import { AdminDashboard } from './components/AdminDashboard';
 import { TicketSuccessModal } from './components/TicketSuccessModal';
+import { LandingPage } from './components/LandingPage';
+import { AdminLogin } from './components/AdminLogin';
+import { AdminPanel } from './components/AdminPanel';
 import { SubmissionResponse } from './types';
-import { getClusters, fetchLiveClusters } from './services/api';
+import { fetchLiveClusters } from './services/api';
 import { getSupabaseClient } from './services/supabaseClient';
 import { getAppConfig, AppConfig } from './config/env';
+import { isAdminAuthenticated, adminLogout } from './config/adminAuth';
+
+type Route = 'landing' | 'app' | 'admin';
+const CITIZEN_TABS = ['report', 'track', 'map'];
+
+// Hash routes: #/ (landing) | #/app[/report|track|map] | #/admin
+const parseHash = (): { route: Route; tab: string } => {
+  const [first = '', second = ''] = window.location.hash.replace(/^#\/?/, '').split('/');
+  if (first === 'admin') return { route: 'admin', tab: 'report' };
+  if (first === 'app') return { route: 'app', tab: CITIZEN_TABS.includes(second) ? second : 'report' };
+  return { route: 'landing', tab: 'report' };
+};
+
+export const navigate = (path: string) => {
+  window.location.hash = path;
+};
 
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<string>('report');
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [{ route, tab }, setLocation] = useState(parseHash());
+  const [isAdminAuthed, setIsAdminAuthed] = useState<boolean>(isAdminAuthenticated());
   const [successResponse, setSuccessResponse] = useState<SubmissionResponse | null>(null);
   const [trackInitialCode, setTrackInitialCode] = useState<string>('');
   const [config, setConfig] = useState<AppConfig>(getAppConfig());
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [isDbConnected, setIsDbConnected] = useState<boolean>(false);
 
-  // Sync with live Supabase on mount and config updates
+  // Sync route on hash change
+  useEffect(() => {
+    const onHashChange = () => {
+      setLocation(parseHash());
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  // Re-validate session whenever entering the admin route
+  useEffect(() => {
+    if (route === 'admin') {
+      setIsAdminAuthed(isAdminAuthenticated());
+    }
+  }, [route]);
+
+  // Live Supabase DB Connectivity check
   useEffect(() => {
     let isMounted = true;
     const checkDbAndSync = async () => {
@@ -46,11 +81,33 @@ export const App: React.FC = () => {
     };
   }, [config, refreshKey]);
 
-  const clusters = getClusters();
-  const verificationCount = clusters.filter(
-    (c) => c.status === 'under_verification' || c.tickets?.some((t) => t.ai_flag)
-  ).length;
+  // Route 1: Landing Page
+  if (route === 'landing') {
+    return (
+      <LandingPage
+        onReport={() => navigate('/app/report')}
+        onViewMap={() => navigate('/app/map')}
+      />
+    );
+  }
 
+  // Route 2: Admin / Officer Console
+  if (route === 'admin') {
+    if (!isAdminAuthed) {
+      return <AdminLogin onSuccess={() => setIsAdminAuthed(true)} />;
+    }
+    return (
+      <AdminPanel
+        onLogout={() => {
+          adminLogout();
+          setIsAdminAuthed(false);
+          navigate('/');
+        }}
+      />
+    );
+  }
+
+  // Route 3: Citizen App (Report, Track, Live Map)
   const handleReportSuccess = (resp: SubmissionResponse) => {
     setSuccessResponse(resp);
     setRefreshKey((prev) => prev + 1);
@@ -58,29 +115,21 @@ export const App: React.FC = () => {
 
   const handleTrackFromSuccess = (ticketCode: string) => {
     setTrackInitialCode(ticketCode);
-    setCurrentTab('track');
-  };
-
-  const handleConfigSaved = () => {
-    const updated = getAppConfig();
-    setConfig(updated);
-    setRefreshKey((prev) => prev + 1);
+    navigate('/app/track');
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Header
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        isAdmin={isAdmin}
-        setIsAdmin={setIsAdmin}
-        verificationCount={verificationCount}
+        currentTab={tab}
+        setCurrentTab={(t) => navigate(`/app/${t}`)}
+        goHome={() => navigate('/')}
         hasGeminiKey={Boolean(config.geminiApiKey?.trim())}
         isDbConnected={isDbConnected}
       />
 
       <main className="flex-1 pb-16">
-        {currentTab === 'report' && (
+        {tab === 'report' && (
           <ReportForm
             key={`report-${refreshKey}-${config.geminiApiKey}`}
             config={config}
@@ -88,19 +137,11 @@ export const App: React.FC = () => {
             onTrackTicket={handleTrackFromSuccess}
           />
         )}
-        {currentTab === 'track' && <TrackTicketView key={`track-${refreshKey}`} initialCode={trackInitialCode} />}
-        {currentTab === 'map' && <PublicMapView key={`map-${refreshKey}`} />}
-        {currentTab === 'home' && <PublicMapView key={`home-${refreshKey}`} />}
-        {(currentTab === 'admin-board' || currentTab === 'admin-verify') && (
-          <AdminDashboard
-            key={`admin-${refreshKey}`}
-            currentTab={currentTab}
-            onRefresh={() => setRefreshKey((k) => k + 1)}
-          />
-        )}
+        {tab === 'track' && <TrackTicketView key={`track-${refreshKey}`} initialCode={trackInitialCode} />}
+        {tab === 'map' && <PublicMapView key={`map-${refreshKey}`} />}
       </main>
 
-      {/* Success Modal */}
+      {/* Ticket Success Modal */}
       {successResponse && (
         <TicketSuccessModal
           response={successResponse}
