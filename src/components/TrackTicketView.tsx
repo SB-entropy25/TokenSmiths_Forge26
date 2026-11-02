@@ -277,6 +277,19 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
               </div>
             </div>
 
+            {searchResult.cluster.status === 'under_verification' && (
+              <div className="my-4 p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1.5">
+                <span className="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  <span>Report Held for Municipal Officer Verification</span>
+                </span>
+                <p className="text-xs text-slate-200">
+                  <strong className="text-amber-400">Specific Hold Reason:</strong>{' '}
+                  <span className="font-mono text-[11.5px] text-amber-100">{searchResult.ticket.ai_summary}</span>
+                </p>
+              </div>
+            )}
+
             {/* AI Multi-Level Diagnostic Check & Detection Bar */}
             <div className="my-5">
               <AiDiagnosticCard

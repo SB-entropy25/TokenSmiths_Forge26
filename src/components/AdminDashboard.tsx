@@ -463,8 +463,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                       </div>
                     </div>
 
-                    <div className="bg-slate-900/60 p-3 rounded-lg text-xs text-slate-300">
-                      <strong>AI Inspector Diagnosis:</strong> {heldTicket.ai_summary}
+                    <div className="bg-amber-950/20 border border-amber-500/40 p-3.5 rounded-xl text-xs space-y-1.5">
+                      <span className="font-bold text-amber-400 flex items-center space-x-1.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-400" />
+                        <span>Hold Trigger & Model Diagnosis:</span>
+                      </span>
+                      <p className="text-slate-200 leading-relaxed font-mono text-[11px] bg-slate-950/70 p-2.5 rounded-lg border border-slate-800">
+                        {heldTicket.ai_summary}
+                      </p>
                     </div>
 
                     {/* Officer Decision Bar */}

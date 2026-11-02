@@ -347,6 +347,13 @@ export const CitizenAuthCard: React.FC<CitizenAuthCardProps> = ({
                           {ticket.description}
                         </p>
 
+                        {isPendingApproval && ticket.ai_summary && (
+                          <div className="bg-amber-950/40 border border-amber-500/20 rounded-lg p-2 text-[11px] text-slate-300">
+                            <span className="font-bold text-amber-300">Hold Reason: </span>
+                            <span className="font-mono text-[10.5px] text-amber-200/90 line-clamp-2">{ticket.ai_summary}</span>
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/60">
                           <span>{new Date(ticket.created_at).toLocaleDateString()}</span>
                           {isPendingApproval ? (

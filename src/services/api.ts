@@ -724,6 +724,17 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   const portalVerdict: 'accepted' | 'held' | 'rejected' = isHeld ? 'held' : 'accepted';
   const status: any = isHeld ? 'under_verification' : 'received';
 
+  // Construct explicit, transparent hold reason for both Citizen and Admin
+  if (isHeld) {
+    if (aiResult.summary?.includes('undergoing updates') || aiResult.summary?.includes('Model Undergoing Updates')) {
+      aiResult.summary = 'AI Model Undergoing Updates: Verification servers currently busy / undergoing updates. Visual evidence routed for manual municipal officer verification.';
+    } else {
+      const syntheticPct = Math.round(aiGeneratedScore * 100);
+      const remarks = aiResult.ai_generated_explanation || aiResult.rejection_reason || aiResult.ai_watermark_description || 'Visual evidence exhibits high probability of synthetic/AI-generated textures or artifact';
+      aiResult.summary = `Gemini Vision Flagged: High synthetic probability (${syntheticPct}% AI-generated detected). Remarks: "${remarks}". Held for manual municipal officer verification.`;
+    }
+  }
+
   const ticketCode = getNextTicketCode();
   const etaHours = severityFinal === 5 ? 6 : severityFinal === 4 ? 24 : 48;
   // If held for review, store with PENDING- prefix so DB uniqueness is preserved,
@@ -951,7 +962,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         cluster_id: clusterId,
         ticket_id: ticketUuid,
         type: 'submitted',
-        message: `Report ${ticketCode} received and verified. Assigned to ${dept.name}.`,
+        message: isHeld ? `Report held for officer review. Reason: ${aiResult.summary}` : `Report ${ticketCode} received and verified. Assigned to ${dept.name}.`,
         public: true,
         actor: 'Civic Engine',
       });

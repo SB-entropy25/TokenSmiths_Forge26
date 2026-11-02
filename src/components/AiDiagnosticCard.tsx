@@ -42,7 +42,7 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
     <div className="bg-slate-900/90 border border-slate-700/80 rounded-2xl p-5 shadow-xl space-y-4">
       {/* 1. Portal Submission Verdict Banner */}
       <div
-        className={`p-3.5 rounded-xl border flex items-center justify-between ${
+        className={`p-3.5 rounded-xl border flex flex-col gap-2.5 ${
           isHeld
             ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
             : verdict === 'rejected'
@@ -50,32 +50,42 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
             : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
         }`}
       >
-        <div className="flex items-center space-x-2.5">
-          {isHeld ? (
-            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
-          ) : verdict === 'rejected' ? (
-            <Ban className="w-5 h-5 text-red-400 flex-shrink-0" />
-          ) : (
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-          )}
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider block">
-              Portal Decision Status
-            </span>
-            <span className="text-sm font-extrabold text-white">
-              {isHeld
-                ? 'HELD FOR ADMIN VERIFICATION (Pending Approval)'
-                : verdict === 'rejected'
-                ? 'REJECTED BY PORTAL'
-                : 'ACCEPTED & DISPATCHED TO MUNICIPAL DEPT'}
-            </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            {isHeld ? (
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+            ) : verdict === 'rejected' ? (
+              <Ban className="w-5 h-5 text-red-400 flex-shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+            )}
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider block">
+                Portal Decision Status
+              </span>
+              <span className="text-sm font-extrabold text-white">
+                {isHeld
+                  ? 'HELD FOR ADMIN VERIFICATION (Pending Approval)'
+                  : verdict === 'rejected'
+                  ? 'REJECTED BY PORTAL'
+                  : 'ACCEPTED & DISPATCHED TO MUNICIPAL DEPT'}
+              </span>
+            </div>
           </div>
+          <span
+            className={`text-xs px-2.5 py-1 rounded-full font-bold border ${scoreBadgeColor}`}
+          >
+            {isHeld ? 'Held for Review' : verdict === 'rejected' ? 'Rejected' : 'Verified Genuine'}
+          </span>
         </div>
-        <span
-          className={`text-xs px-2.5 py-1 rounded-full font-bold border ${scoreBadgeColor}`}
-        >
-          {isHeld ? 'Held for Review' : verdict === 'rejected' ? 'Rejected' : 'Verified Genuine'}
-        </span>
+
+        {/* Hold reason shown prominently for both Admin and Citizen */}
+        {isHeld && (
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-lg p-2.5 text-xs text-slate-200">
+            <span className="font-bold text-amber-300">📋 Hold Reason: </span>
+            <span className="font-mono text-[11px] text-amber-100">{aiSummary}</span>
+          </div>
+        )}
       </div>
 
       {/* 2. AI Photo Authenticity & Synthetic Detection Bar */}

@@ -97,15 +97,23 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
             </p>
           </div>
         ) : isHeld ? (
-          <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-4 text-center shadow-inner space-y-1.5">
+          <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-4 text-center shadow-inner space-y-2.5">
             <span className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block">
               Official Complaint ID
             </span>
             <span className="text-xl sm:text-2xl font-black font-mono text-amber-300 block tracking-wide">
               PENDING FOR APPROVAL
             </span>
-            <span className="text-xs text-slate-300 block leading-relaxed max-w-md mx-auto">
-              No Complaint ID is generated yet. Your report has been submitted to municipal officers for manual inspection. Once approved, an official Complaint ID and PDF receipt will be assigned to your account.
+            <div className="bg-slate-900/90 border border-amber-500/30 rounded-lg p-3 text-left">
+              <span className="text-[11px] font-bold text-amber-300 block mb-1">
+                📋 Specific Reason Held for Officer Review:
+              </span>
+              <p className="text-xs text-slate-200 leading-relaxed font-mono text-[11px]">
+                {response.ai_summary}
+              </p>
+            </div>
+            <span className="text-[11px] text-slate-400 block leading-relaxed max-w-md mx-auto">
+              No Complaint ID is generated yet. Once municipal officers review and approve this evidence, your official Complaint ID and downloadable PDF receipt will be activated in your account.
             </span>
           </div>
         ) : (
