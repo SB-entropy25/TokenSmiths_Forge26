@@ -23,7 +23,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, tab]);
 
   const tabBtn = (id: 'admin-board' | 'admin-verify', activeColor: string) =>
     `relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${

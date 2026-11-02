@@ -418,11 +418,25 @@ Reply ONLY with valid raw JSON in this exact structure:
       }
 
       const json = await res.json();
-      const textOutput = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      const parts = json.candidates?.[0]?.content?.parts || [];
+      let textOutput = '';
+      for (const p of parts) {
+        if (p.text && !p.thought) {
+          textOutput = p.text;
+          break;
+        }
+      }
+      if (!textOutput) {
+        textOutput = parts.map((p: any) => p.text || '').join('').trim();
+      }
       if (!textOutput) throw new Error('Empty response from Gemini');
 
-      const sanitizedJson = textOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
-      return JSON.parse(sanitizedJson);
+      let jsonStr = textOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+      return JSON.parse(jsonStr);
     } catch (err) {
       lastError = err;
     }

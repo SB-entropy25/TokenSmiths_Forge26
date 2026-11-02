@@ -101,7 +101,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentTab]);
 
   const handleApplyActions = async () => {
     if (!selectedCluster) return;
@@ -388,9 +388,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                 Tickets with synthetic confidence between 30% and 80% or held during model updates are queued here for officer clearance.
               </p>
             </div>
-            <span className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded-full text-xs font-bold">
-              {heldClusters.length} Held Items
-            </span>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={loadData}
+                disabled={loading}
+                className="flex items-center space-x-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-full text-xs font-semibold transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Refresh Queue</span>
+              </button>
+              <span className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded-full text-xs font-bold">
+                {heldClusters.length} Held Items
+              </span>
+            </div>
           </div>
 
           {heldClusters.length === 0 ? (

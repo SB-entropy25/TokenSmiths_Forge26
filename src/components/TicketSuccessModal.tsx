@@ -81,7 +81,7 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
             {isRejected
               ? 'Our multimodal AI inspected the photos and description. The evidence did not match public infrastructure or municipal repair criteria.'
               : isHeld
-              ? 'Your complaint is queued for manual inspection by municipal officers. No Complaint ID is assigned yet.'
+              ? 'Your complaint is registered and queued for municipal admin verification.'
               : 'Multi-layer AI verification passed. Your complaint is registered in the municipal dispatch stream.'}
           </p>
         </div>
