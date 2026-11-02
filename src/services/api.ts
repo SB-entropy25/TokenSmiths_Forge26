@@ -208,18 +208,58 @@ const scanImageForAiArtifacts = async (
   return { isAi: false, score: 0, reason: '' };
 };
 
-// Convert File/Blob to Base64 (stripping header prefix)
-const fileToBase64 = (file: File | Blob): Promise<string> => {
+// Compress image to max 1280px on the fly and convert to Base64 (stripping header prefix)
+const compressAndConvertToBase64 = (file: File | Blob, maxWidth = 1280, maxHeight = 1280): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const base64String = (reader.result as string).split(',')[1];
-      resolve(base64String);
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = (error) => reject(error);
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { naturalWidth: width, naturalHeight: height } = img;
+      if (width > maxWidth || height > maxHeight) {
+        if (width > height) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      resolve(dataUrl.split(',')[1]);
     };
-    reader.onerror = (error) => reject(error);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = (error) => reject(error);
+      reader.readAsDataURL(file);
+    };
+    img.src = url;
   });
 };
+
+const fileToBase64 = compressAndConvertToBase64;
 
 // Upload photo directly to Supabase Storage with strict 3-second timeout protection
 const uploadPhotoDirect = async (file: File | Blob, bucket: 'reports' | 'proofs'): Promise<string> => {
@@ -284,47 +324,64 @@ const analyzeWithGeminiDirect = async (
   const nearBase64 = await fileToBase64(nearPhoto);
 
   const promptText = `
-You are an expert civic infrastructure forensic inspector for a municipal government complaint portal.
+You are a senior forensic civic infrastructure inspector and fraud detection AI for a municipal government complaint portal.
 Image 1 is a WIDE view of the public area. Image 2 is a NEAR view of the reported issue.
 Citizen chosen category: "${category}"
 Citizen submitted description: """${description}"""
 
-YOUR CRITICAL TASKS IN STRICT PRIORITY ORDER:
+YOUR CRITICAL VERIFICATION TASKS IN STRICT ORDER:
 
-1. MANDATORY AI-GENERATION & WATERMARK FORENSICS (CHECK THIS FIRST!):
-   Carefully inspect both images at the pixel and compositional level for ANY evidence of Generative AI (DALL-E, Midjourney, Stable Diffusion, Flux, Sora, Adobe Firefly, Photoshop Generative Fill, Imagen, Bing Image Creator, or CGI):
-   - WATERMARK & LOGO CHECK: Examine all four corners (especially bottom-right and bottom-left) and margins for:
-     * DALL-E's multicolored or yellow/red/blue squares.
-     * Bing Image Creator icon / watermark.
-     * Midjourney, Canva, or Adobe Firefly logos/badges.
-     * Faint translucent AI labels or watermarks anywhere in the image.
-   - SYNTHETIC TEXTURE & LIGHTING FORENSICS:
-     * Unnatural plastic gloss, airbrushed smoothness, or painterly/cartoonish rendering on pavement, asphalt, concrete, or walls.
-     * Surreal, hyper-dramatic volumetric lighting or impossible reflection/shadow angles.
-     * Impossible geometry, warped perspective, melting wheels/curbs, or floating debris.
-     * Warped, dream-like, or alien gibberish text on street signs, license plates, or posters.
-   - STRICT ENFORCEMENT:
-     * If ANY watermark is found OR the image looks AI-generated/synthetic:
-       Set "is_ai_generated": true
-       Set "ai_watermark_detected": true (if watermark/logo visible)
-       Set "ai_generated_probability": 0.95 to 1.00
-       Set "is_valid_civic_issue": false (AI images are simulated fakes, NEVER real municipal emergencies)
-       Set "detected_issue_type": "not_a_civic_issue"
-       Set "rejection_reason": "AI-generated image detected (Watermark/Synthetic artifacts identified). Only genuine camera photos of real physical infrastructure damage are accepted."
+TASK 1: GENERATIVE AI & SYNTHETIC FORENSICS (CHECK THIS FIRST!)
+Inspect both images at pixel, edge, texture, and compositional levels for ANY generative AI evidence (Midjourney, DALL-E, Stable Diffusion, Flux, Sora, Adobe Firefly, Photoshop Generative Fill, Imagen, Bing Creator, or CGI):
+- Watermarks & Logos: DALL-E squares, Bing watermarks, Midjourney badges, or translucent AI stamps.
+- Synthetic Textures: Unnatural plastic sheen, airbrushed smoothness, cartoonish rendering, surreal volumetric lighting, warped geometry, melting curbs, floating objects, alien/gibberish text on street signs.
+- If ANY AI indicator is detected:
+  * Set "is_ai_generated": true
+  * Set "ai_watermark_detected": true (if visible)
+  * Set "ai_generated_probability": 0.95 to 1.00
+  * Set "is_valid_civic_issue": false
+  * Set "detected_issue_type": "not_a_civic_issue"
+  * Set "rejection_reason": "AI-generated / synthetic imagery detected (Watermark/Synthetic artifacts identified). Only genuine camera photos of real physical infrastructure damage are accepted."
 
-2. STRICT CIVIC VALIDATION (For genuine real-world photos):
-   Do these photos actually show a REAL PUBLIC CIVIC / MUNICIPAL INFRASTRUCTURE ISSUE (such as road pothole, leaking water main, exposed electrical cable, open manhole/drain, garbage pile, broken streetlight, fallen tree)?
-   - If the photos show: pets, animals, food, selfies, bedrooms, indoor furniture, random wallpapers, memes, car interiors, screenshots, or unrelated everyday objects, set "is_valid_civic_issue": false and "detected_issue_type": "not_a_civic_issue".
-   - If the photos are completely dark, pitch black, or blurry beyond recognition, set "is_valid_civic_issue": false.
+TASK 2: AUTHENTIC PUBLIC CIVIC HAZARD CHECK
+Do the photos show a genuine public municipal infrastructure problem (such as road pothole, leaking water main, exposed electrical cable, open manhole/sewage drain, garbage pile, broken streetlight, fallen tree)?
+- If the photos show: pets, animals, food, selfies, bedrooms, indoor furniture, random wallpapers, memes, car interiors, screenshots, natural mountains/forests, or unrelated everyday objects:
+  * Set "is_valid_civic_issue": false
+  * Set "detected_issue_type": "not_a_civic_issue"
+  * Set "rejection_reason": "Not a municipal public hazard. Uploaded photo depicts an unrelated subject rather than public civic infrastructure damage."
+- If the photos are completely dark, pitch black, or blurry beyond recognition:
+  * Set "is_valid_civic_issue": false
+  * Set "rejection_reason": "Uploaded photos are too dark or blurry to visually inspect the civic hazard."
 
-3. CATEGORY & DESCRIPTION CHECK:
-   - "matches_category": Does the visible physical issue match the citizen's chosen category "${category}"? (e.g., if citizen selected "pothole" but photo shows a cat, food, or car, set matches_category: false).
-   - "description_consistent": Does the citizen's text describe what is actually visible in the photo? If citizen wrote random gibberish, spam, or completely unrelated words, set description_consistent: false.
+TASK 3: CATEGORY & PHOTO RELEVANCE CHECK (STRICT TYPE CHECK)
+Does the visible physical issue in the photos match the citizen's chosen category "${category}"?
+The allowed municipal categories are:
+- "pothole": Road craters, asphalt cracks, damaged pavement.
+- "garbage": Dumped trash, overflowing municipal bins, waste piles.
+- "water_leak": Pipe burst, leaking clean/potable water mains, street flooding from clean pipes.
+- "sewage_drain": Blocked sewers, missing manhole covers, overflowing gutter/drain, toxic sludge.
+- "streetlight": Broken light pole, non-working lamp fixture, dark intersection.
+- "electrical_hazard": Live hanging wires, sparking transformer, exposed high-voltage junction box.
+- "fallen_tree": Tree or large branch fallen on public road, power lines, or walkway.
+- "other": Legitimate civic damage not covered above.
 
-4. SEVERITY & DANGER RATING (Only if real authentic civic issue):
-   - Rate severity from 1 (minor cosmetic defect) to 5 (critical immediate danger to human life: live high-voltage wire, open deep manhole, building collapse risk).
-   - Rate danger aspects (true/false): risk_to_life, electrical_hazard, open_manhole_or_pit, blocks_emergency_access, traffic_hazard, water_or_flood_risk, health_hazard, worsens_over_time.
-   - Suggest realistic resolution timeline in hours (urgent hazard: 6h, road pothole: 24-48h, garbage: 24h, minor: 72h).
+STRICT RULE: If the photo clearly depicts a DIFFERENT category than "${category}" (e.g. citizen selected "pothole" but photo depicts garbage, water leak, dog, car, etc.):
+* Set "matches_category": false
+* Set "detected_issue_type": [actual category detected, e.g. "garbage", "water_leak", "pothole", "not_a_civic_issue"]
+* Set "rejection_reason": "Category Mismatch: You selected '${category.replace('_', ' ')}', but the uploaded photo depicts " + detected_issue_type + ". Please select the correct category from the dropdown or upload matching photos."
+
+TASK 4: DESCRIPTION & PHOTO CONSISTENCY CHECK
+Does the citizen's text description truthfully describe what is visibly seen in the photos?
+- If citizen describes a massive water pipe burst but photo shows a dry pothole, set "description_consistent": false.
+- If citizen wrote spam, random gibberish, test words ("asdf", "test 123", "nothing"), or completely unrelated text, set "description_consistent": false.
+- If inconsistent:
+  * Set "description_consistent": false
+  * Set "rejection_reason": "Description Mismatch: Your description does not match the physical condition visible in the photos."
+
+TASK 5: SEVERITY & DANGER RATING (Only if real authentic civic issue matching category)
+- Rate severity from 1 (minor cosmetic defect) to 5 (critical immediate danger to human life: live high-voltage wire, open deep manhole, building collapse risk).
+- Rate danger aspects (true/false): risk_to_life, electrical_hazard, open_manhole_or_pit, blocks_emergency_access, traffic_hazard, water_or_flood_risk, health_hazard, worsens_over_time.
+- Suggest realistic resolution timeline in hours (urgent hazard: 6h, road pothole: 24-48h, garbage: 24h, minor: 72h).
 
 Reply ONLY with valid raw JSON in this exact structure:
 {
@@ -337,7 +394,7 @@ Reply ONLY with valid raw JSON in this exact structure:
   "detected_issue_type": "pothole" | "garbage" | "water_leak" | "sewage_drain" | "streetlight" | "electrical_hazard" | "fallen_tree" | "other" | "not_a_civic_issue",
   "matches_category": boolean,
   "description_consistent": boolean,
-  "rejection_reason": "string (mandatory if is_ai_generated is true or is_valid_civic_issue is false)",
+  "rejection_reason": "string (mandatory if is_ai_generated is true, is_valid_civic_issue is false, matches_category is false, or description_consistent is false)",
   "severity_ai": 1 | 2 | 3 | 4 | 5,
   "summary": "technical summary for municipal workers",
   "eta_hours": 6 | 24 | 48 | 72,
@@ -356,7 +413,7 @@ Reply ONLY with valid raw JSON in this exact structure:
 `;
 
   const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
-  const candidateModels = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+  const candidateModels = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError: any = null;
 
   for (const model of candidateModels) {
@@ -366,7 +423,7 @@ Reply ONLY with valid raw JSON in this exact structure:
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(9000),
+        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           contents: [
             {
@@ -520,8 +577,41 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         config.geminiApiKey
       );
     } catch (err: any) {
-      console.warn('Direct Gemini call failed or rate-limited; applying strict heuristic:', err);
-      aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
+      console.error('Direct Gemini call failed:', err);
+      const isRateLimit = err?.message && (err.message.includes('429') || err.message.includes('Resource has been exhausted') || err.message.includes('quota'));
+      const isTimeout = err?.name === 'TimeoutError' || (err?.message && err.message.includes('timeout'));
+
+      const errorDetail = isRateLimit
+        ? 'AI Verification Busy: Google Gemini API rate limit reached. Please wait 10 seconds and re-submit.'
+        : isTimeout
+        ? 'AI Verification Timed Out: High-resolution photo upload took too long. Please re-submit.'
+        : `AI Verification Unavailable: ${err?.message || 'Verification service error'}. Please re-submit in a few seconds.`;
+
+      // STRICT PROTECTION: Never silently approve fake/unverified submissions on network error!
+      return {
+        success: false,
+        ticket_code: 'ERROR-VERIFY-001',
+        cluster_id: '',
+        severity_final: 0,
+        eta_hours: 0,
+        status: 'rejected',
+        ai_summary: errorDetail,
+        ai_formal_description: 'Submission Held: Multi-layer AI verification could not complete. For municipal data integrity, complaints cannot bypass visual inspection.',
+        danger: {
+          risk_to_life: false,
+          electrical_hazard: false,
+          open_manhole_or_pit: false,
+          blocks_emergency_access: false,
+          traffic_hazard: false,
+          water_or_flood_risk: false,
+          health_hazard: false,
+          worsens_over_time: false,
+        },
+        ai_generated_score: 0,
+        portal_verdict: 'rejected',
+        context,
+        message: errorDetail,
+      };
     }
   } else {
     // Intelligent local fallback if no Gemini key entered yet
@@ -548,24 +638,37 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   );
   const aiGeneratedScore = Number(Math.max(0, Math.min(1, combinedAiScore)).toFixed(2));
 
-  // If AI generation, watermark, or high synthetic probability detected, strictly enforce rejection
+  // TIER 1: If AI generation, watermark, or high synthetic probability detected, strictly enforce rejection
   if (aiResult.is_ai_generated || aiResult.ai_watermark_detected || combinedAiScore >= 0.50) {
     aiResult.is_valid_civic_issue = false;
     aiResult.detected_issue_type = 'not_a_civic_issue';
     if (!aiResult.rejection_reason || !/ai[- ]?generated|synthetic|watermark/i.test(aiResult.rejection_reason)) {
-      aiResult.rejection_reason = `AI-generated / synthetic imagery detected (${Math.round(aiGeneratedScore * 100)}% synthetic confidence). Submissions must depict genuine physical infrastructure damage.`;
+      aiResult.rejection_reason = `AI-Generated Image Detected (${Math.round(aiGeneratedScore * 100)}% synthetic confidence): Submissions must depict genuine physical infrastructure damage taken with a real camera.`;
     }
   }
 
-  // STRICT REJECTION: If Gemini detects that the photo does not show a civic issue
-  // OR the description is completely inconsistent with civic damage:
-  if (!aiResult.is_valid_civic_issue || aiResult.detected_issue_type === 'not_a_civic_issue' || !aiResult.matches_category) {
+  // TIER 2: Category Relevance Check (Photo must match the selected category from dropdown)
+  if (aiResult.matches_category === false) {
+    aiResult.is_valid_civic_issue = false;
+    const detectedLabel = aiResult.detected_issue_type && aiResult.detected_issue_type !== 'not_a_civic_issue'
+      ? aiResult.detected_issue_type.replace('_', ' ')
+      : 'an unrelated subject';
+    aiResult.rejection_reason = `Category Mismatch: You selected "${payload.category.replace('_', ' ').toUpperCase()}", but the uploaded photo depicts ${detectedLabel}. Please select the matching category from the dropdown or upload matching photos.`;
+  }
+
+  // TIER 3: Description Consistency Check (Description must truthfully describe the photo)
+  if (aiResult.description_consistent === false) {
+    aiResult.is_valid_civic_issue = false;
+    if (!aiResult.rejection_reason || !/description/i.test(aiResult.rejection_reason)) {
+      aiResult.rejection_reason = `Description Inconsistent: The submitted description does not match the physical condition visible in the photos. Please provide an accurate description of the visible hazard.`;
+    }
+  }
+
+  // TIER 4: General Civic Hazard Check (Photo must show actual municipal infrastructure, not private objects/memes/landscapes)
+  if (!aiResult.is_valid_civic_issue || aiResult.detected_issue_type === 'not_a_civic_issue') {
     const rejectionMsg =
       aiResult.rejection_reason ||
-      `AI Vision Rejection: Uploaded evidence does not show an authentic public civic hazard or does not match "${payload.category.replace(
-        '_',
-        ' '
-      )}". Please upload clear photos of real physical infrastructure damage.`;
+      `Not a Municipal Civic Hazard: Uploaded photo does not depict real public infrastructure damage (roads, drainage, electrical, waste). Submissions showing private interiors, personal objects, animals, landscapes, or memes cannot be processed.`;
 
     return {
       success: false,
@@ -577,7 +680,11 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
       ai_summary: rejectionMsg,
       ai_formal_description: textIndicatesAi
         ? `Submission Disallowed: Synthetic AI-generated image or watermark detected (${Math.round(aiGeneratedScore * 100)}% Synthetic confidence). Digital fabrications are strictly rejected.`
-        : `Submission Rejected by Portal AI: Visual evidence failed civic validity checks. Detected: ${aiResult.detected_issue_type}. Description match: ${aiResult.description_consistent ? 'Partial' : 'Inconsistent'}.`,
+        : !aiResult.matches_category
+        ? `Submission Rejected: Category mismatch. Selected: ${payload.category.replace('_', ' ').toUpperCase()}, Detected: ${aiResult.detected_issue_type.replace('_', ' ')}.`
+        : !aiResult.description_consistent
+        ? `Submission Rejected: Description inconsistency. Text does not match photographic evidence.`
+        : `Submission Rejected by Portal AI: Visual evidence failed civic validity checks. Detected: ${aiResult.detected_issue_type.replace('_', ' ')}.`,
       danger: {
         risk_to_life: false,
         electrical_hazard: false,
@@ -924,6 +1031,49 @@ const getHeuristicAI = (category: string, lat: number, lng: number, description:
         worsens_over_time: false,
       },
     };
+  }
+
+  // Category relevance keywords
+  const categorySpecificKeywords: Record<string, string[]> = {
+    pothole: ['pothole', 'road', 'asphalt', 'crater', 'crack', 'street', 'pavement', 'highway', 'tar', 'pit'],
+    garbage: ['garbage', 'trash', 'waste', 'bin', 'dump', 'rubbish', 'litter', 'filth', 'debris', 'smell', 'plastic'],
+    water_leak: ['water', 'leak', 'pipe', 'pipeline', 'burst', 'gushing', 'potable', 'supply', 'tap', 'flooding'],
+    sewage_drain: ['sewage', 'drain', 'manhole', 'gutter', 'sewer', 'chamber', 'dirty water', 'overflow', 'toxic', 'sludge', 'foul'],
+    streetlight: ['light', 'streetlight', 'lamp', 'pole', 'dark', 'bulb', 'illumination', 'fixture'],
+    electrical_hazard: ['electric', 'wire', 'cable', 'spark', 'shock', 'hanging', 'transformer', 'high voltage', 'meter', 'current'],
+    fallen_tree: ['tree', 'branch', 'fallen', 'trunk', 'wood', 'uprooted', 'bough', 'leaves', 'blocking'],
+  };
+
+  const expectedKeywords = categorySpecificKeywords[category];
+  if (expectedKeywords && expectedKeywords.length > 0) {
+    const hasCategoryTerm = expectedKeywords.some((term) => lowerDesc.includes(term));
+    if (!hasCategoryTerm && lowerDesc.length > 10) {
+      for (const [otherCat, otherTerms] of Object.entries(categorySpecificKeywords)) {
+        if (otherCat !== category && otherTerms.some((t) => lowerDesc.includes(t))) {
+          return {
+            is_valid_civic_issue: false,
+            detected_issue_type: otherCat,
+            matches_category: false,
+            description_consistent: false,
+            rejection_reason: `Category Mismatch: You selected "${category.replace('_', ' ').toUpperCase()}", but your description describes ${otherCat.replace('_', ' ')}. Please select the correct category from the dropdown.`,
+            severity_ai: 0,
+            summary: `Automated rejection: Category mismatch between "${category}" and description.`,
+            eta_hours: 0,
+            confidence: 0.95,
+            danger: {
+              risk_to_life: false,
+              electrical_hazard: false,
+              open_manhole_or_pit: false,
+              blocks_emergency_access: false,
+              traffic_hazard: false,
+              water_or_flood_risk: false,
+              health_hazard: false,
+              worsens_over_time: false,
+            },
+          };
+        }
+      }
+    }
   }
 
   let severity_ai = 3;

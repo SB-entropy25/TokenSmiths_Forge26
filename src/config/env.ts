@@ -19,7 +19,7 @@ const getDefaultConfig = (): AppConfig => {
   const env = (import.meta as any).env || {};
   return {
     useDirectMode: env.VITE_USE_DIRECT_MODE !== 'false', // Default to TRUE (Direct Mode!)
-    geminiApiKey: env.VITE_GEMINI_API_KEY || '',
+    geminiApiKey: env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || '',
     supabaseUrl: env.VITE_SUPABASE_URL || '',
     supabaseAnonKey: env.VITE_SUPABASE_ANON_KEY || '',
     n8nSubmitWebhookUrl: env.VITE_N8N_SUBMIT_WEBHOOK_URL || '',
