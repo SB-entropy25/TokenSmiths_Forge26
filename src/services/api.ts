@@ -712,7 +712,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
 
   // TASK: If passed description + category + image check, check AI synthetic score:
   // If AI verification is ABOVE 80% (> 0.80), directly reject!
-  const isDirectAiRejection = !isModelOverloaded && aiGeneratedScore > 0.80;
+  const isDirectAiRejection = !isModelOverloaded && aiGeneratedScore >= 0.80;
   if (isDirectAiRejection) {
     const syntheticPct = Math.round(aiGeneratedScore * 100);
     const remarks = aiResult.ai_generated_explanation || aiResult.rejection_reason || 'Diffusion artifacts and generative deepfake textures detected.';
@@ -755,7 +755,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   ]);
 
   // Step 4: Determine if held for review (between 30% and 80%, or model overloaded):
-  const isHeld = isModelOverloaded || (aiGeneratedScore >= 0.30 && aiGeneratedScore <= 0.80);
+  const isHeld = isModelOverloaded || (aiGeneratedScore >= 0.30 && aiGeneratedScore < 0.80);
   const portalVerdict: 'accepted' | 'held' | 'rejected' = isHeld ? 'held' : 'accepted';
   const status: any = isHeld ? 'under_verification' : 'received';
 

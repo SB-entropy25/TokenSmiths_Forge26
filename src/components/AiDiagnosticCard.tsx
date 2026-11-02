@@ -32,16 +32,18 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
   // Score percentage (synthetic confidence) — show real score without forcing 95%!
   const percentage = isModelOverloaded ? 0 : Math.round(Math.max(0, Math.min(1, score || 0)) * 100);
 
-  const isHeld = verdict === 'held' || percentage >= 50 || isModelOverloaded;
-  const isSuspicious = !isHeld && percentage >= 30;
-  const isRejected = verdict === 'rejected';
+  // Directly rejected if verdict is rejected OR synthetic score exceeds 80%
+  const isRejected = verdict === 'rejected' || percentage >= 80;
+  // Held ONLY if not rejected and between 30% and 79% (or model overloaded / explicit held verdict)
+  const isHeld = !isRejected && (verdict === 'held' || (percentage >= 30 && percentage < 80) || isModelOverloaded);
+  const isSuspicious = !isHeld && !isRejected && percentage >= 30;
   const isAuthentic = !isHeld && !isSuspicious && !isRejected;
 
-  const barColor = isModelOverloaded ? 'bg-amber-500/50' : isHeld ? 'bg-red-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
-  const scoreBadgeColor = isHeld
-    ? 'text-amber-300 bg-amber-500/20 border-amber-500/40'
-    : isRejected
+  const barColor = isModelOverloaded ? 'bg-amber-500/50' : isRejected ? 'bg-red-500' : isHeld ? 'bg-amber-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
+  const scoreBadgeColor = isRejected
     ? 'text-red-400 bg-red-500/20 border-red-500/40'
+    : isHeld
+    ? 'text-amber-300 bg-amber-500/20 border-amber-500/40'
     : 'text-emerald-400 bg-emerald-500/20 border-emerald-500/40';
 
   return (
@@ -49,19 +51,19 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
       {/* 1. Portal Submission Verdict Banner */}
       <div
         className={`p-3.5 rounded-xl border flex flex-col gap-2.5 ${
-          isHeld
-            ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-            : verdict === 'rejected'
+          isRejected
             ? 'bg-red-950/40 border-red-500/40 text-red-300'
+            : isHeld
+            ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
             : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
         }`}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
-            {isHeld ? (
-              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
-            ) : verdict === 'rejected' ? (
+            {isRejected ? (
               <Ban className="w-5 h-5 text-red-400 flex-shrink-0" />
+            ) : isHeld ? (
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
             ) : (
               <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
             )}
@@ -70,10 +72,10 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
                 Portal Decision Status
               </span>
               <span className="text-sm font-extrabold text-white">
-                {isHeld
+                {isRejected
+                  ? 'DIRECTLY REJECTED BY PORTAL AI'
+                  : isHeld
                   ? 'HELD FOR ADMIN VERIFICATION (Pending Approval)'
-                  : verdict === 'rejected'
-                  ? 'REJECTED BY PORTAL'
                   : 'ACCEPTED & DISPATCHED TO MUNICIPAL DEPT'}
               </span>
             </div>
@@ -81,11 +83,19 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
           <span
             className={`text-xs px-2.5 py-1 rounded-full font-bold border ${scoreBadgeColor}`}
           >
-            {isHeld ? 'Held for Review' : verdict === 'rejected' ? 'Rejected' : 'Verified Genuine'}
+            {isRejected ? 'Directly Rejected' : isHeld ? 'Held for Review' : 'Verified Genuine'}
           </span>
         </div>
 
-        {/* Hold reason shown prominently for both Admin and Citizen */}
+        {/* Rejection reason shown in RED if rejected */}
+        {isRejected && (
+          <div className="bg-slate-900/90 border border-red-500/40 rounded-lg p-2.5 text-xs text-slate-200">
+            <span className="font-bold text-red-400">🚫 Rejection Reason: </span>
+            <span className="font-mono text-[11px] text-red-200">{aiSummary}</span>
+          </div>
+        )}
+
+        {/* Hold reason shown in AMBER only if held */}
         {isHeld && (
           <div className="bg-slate-900/90 border border-amber-500/30 rounded-lg p-2.5 text-xs text-slate-200">
             <span className="font-bold text-amber-300">📋 Hold Reason: </span>

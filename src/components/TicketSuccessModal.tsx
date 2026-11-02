@@ -16,8 +16,8 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
   const cluster = allClusters.find((c) => c.id === response.cluster_id);
   const ticket = cluster?.tickets?.find((t) => t.ticket_code === response.ticket_code);
 
-  const isRejected = response.portal_verdict === 'rejected' || response.status === 'rejected';
-  const isHeld = response.status === 'under_verification' || response.portal_verdict === 'held';
+  const isRejected = response.portal_verdict === 'rejected' || response.status === 'rejected' || (Boolean(response.ai_generated_score) && (response.ai_generated_score || 0) >= 0.80);
+  const isHeld = !isRejected && (response.status === 'under_verification' || response.portal_verdict === 'held');
 
   const handleDownloadPdf = () => {
     if (isRejected || isHeld) {
@@ -71,7 +71,7 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
 
           <h2 className="text-xl sm:text-2xl font-black text-white">
             {isRejected
-              ? 'Grievance Rejected by Portal AI'
+              ? 'Grievance Directly Rejected by Portal AI'
               : isHeld
               ? 'Grievance Pending Officer Approval'
               : 'Grievance Formally Accepted'}
@@ -90,7 +90,7 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
         {isRejected ? (
           <div className="bg-red-950/30 border border-red-500/30 rounded-xl p-3.5 text-center">
             <span className="text-xs font-bold text-red-400 uppercase tracking-wider block">
-              Submission Disallowed
+              Submission Disallowed — Directly Rejected
             </span>
             <p className="text-xs text-slate-300 mt-1">
               {response.message || response.ai_summary}
