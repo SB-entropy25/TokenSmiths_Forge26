@@ -310,7 +310,8 @@ export const CitizenAuthCard: React.FC<CitizenAuthCardProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
                   {userComplaints.map(({ ticket, cluster }) => {
                     const isPendingApproval = cluster.status === 'under_verification' || ticket.ticket_code?.startsWith('PENDING') || ticket.ai_flag;
-                    const displayCode = isPendingApproval ? 'PENDING APPROVAL' : ticket.ticket_code;
+                    const cleanTicketCode = ticket.ticket_code?.startsWith('PENDING-') ? ticket.ticket_code.replace('PENDING-', '') : ticket.ticket_code;
+                    const displayCode = cleanTicketCode || 'PENDING APPROVAL';
 
                     return (
                       <div
@@ -358,7 +359,7 @@ export const CitizenAuthCard: React.FC<CitizenAuthCardProps> = ({
                           <span>{new Date(ticket.created_at).toLocaleDateString()}</span>
                           {isPendingApproval ? (
                             <span className="text-amber-400 font-semibold text-[10px]">
-                              Awaiting Officer Approval (No ID yet)
+                              Held for Admin Review
                             </span>
                           ) : (
                             <span className="text-emerald-400 font-semibold flex items-center space-x-1">

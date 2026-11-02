@@ -160,7 +160,7 @@ export const App: React.FC = () => {
 
       {/* Footer */}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
-        <p>Civic Triage & Ticketing System • Powered by Supabase, PostGIS & Google Gemini AI</p>
+        <p className="font-semibold text-slate-400">Made by TokenSmiths</p>
       </footer>
     </div>
   );

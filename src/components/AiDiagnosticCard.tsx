@@ -94,7 +94,8 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
         )}
       </div>
 
-      {/* 2. AI Photo Authenticity & Synthetic Detection Bar */}
+      {/* 2. AI Photo Authenticity & Synthetic Detection Bar (Only shown if description check passed) */}
+      {(!isRejected || (score && score > 0)) && (
       <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 space-y-2">
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center space-x-1.5 font-semibold text-slate-200">
@@ -118,23 +119,22 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
 
         {/* Legend / Scale Markers */}
         <div className="flex justify-between items-center text-[10px] text-slate-400 pt-0.5">
-          <span className="text-emerald-400">0% (Real Photo)</span>
-          <span className="text-amber-400">40% (Warning Threshold)</span>
-          <span className="text-red-400">70%+ (Held for Officer Review)</span>
+          <span className="text-emerald-400">&lt; 30% (Real Photo - Passed)</span>
+          <span className="text-amber-400">30% - 80% (Held for Review)</span>
+          <span className="text-red-400">&gt; 80% (Direct Rejection)</span>
         </div>
 
         <p className="text-[11px] text-slate-400">
           {isModelOverloaded
-            ? '⏸️ Visual AI server reached capacity limits during filing. No synthetic anomalies flagged; pending manual officer inspection.'
+            ? '⏸️ Visual AI server reached capacity limits during filing. No synthetic anomalies flagged; forwarded for admin verification.'
+            : percentage > 80
+            ? '🚨 High synthetic probability (>80% AI generated). Upload disallowed by portal AI.'
             : isHeld
-            ? '🚨 Potential synthetic artifact detected by Gemini. Placed in officer verification queue.'
-            : isRejected
-            ? '⚠️ Visual evidence failed civic validity checks. Does not depict public infrastructure.'
-            : isSuspicious
-            ? '⚠️ Mild visual compression detected. Proceeding with caution flag.'
-            : '✓ EXIF metadata, lens curvature, and noise patterns match genuine smartphone camera capture.'}
+            ? '⚠️ Moderate synthetic score (between 30-80%). Placed in officer verification queue.'
+            : '✓ Real genuine photo (below 30% synthetic). Verified authentic smartphone camera capture.'}
         </p>
       </div>
+      )}
 
       {/* 3. Gemini Multimodal Hazard Triage */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">

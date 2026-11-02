@@ -91,7 +91,7 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     try {
       let isSuccess = false;
       let lastErrMsg = '';
-      const testModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
+      const testModels = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
       for (const m of testModels) {
         try {

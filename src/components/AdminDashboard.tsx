@@ -385,7 +385,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                 <span>AI Photo Authenticity Verification Queue</span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Tickets with AI synthetic confidence &ge; 0.70 or description mismatches are held here for officer clearance.
+                Tickets with synthetic confidence between 30% and 80% or held during model updates are queued here for officer clearance.
               </p>
             </div>
             <span className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded-full text-xs font-bold">
@@ -401,7 +401,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
           ) : (
             <div className="space-y-6">
               {heldClusters.map((cluster) => {
-                const heldTicket = cluster.tickets?.[0];
+                const heldTicket = cluster.tickets?.find((t) => t.ai_flag || cluster.status === 'under_verification') || cluster.tickets?.[0];
                 if (!heldTicket) return null;
 
                 return (
@@ -537,7 +537,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                             onClick={() => handleVerifyDecision(heldTicket.id, true)}
                             className="flex-1 sm:flex-initial px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-emerald-600/20"
                           >
-                            Approve & Assign Severity / ID
+                            Approve & Assign Severity
                           </button>
                         </div>
                       </div>

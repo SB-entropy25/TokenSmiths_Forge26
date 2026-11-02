@@ -99,21 +99,21 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
         ) : isHeld ? (
           <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-4 text-center shadow-inner space-y-2.5">
             <span className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block">
-              Official Complaint ID
+              Registered Complaint Reference ID
             </span>
-            <span className="text-xl sm:text-2xl font-black font-mono text-amber-300 block tracking-wide">
-              PENDING FOR APPROVAL
+            <span className="text-2xl sm:text-3xl font-black font-mono text-amber-300 block tracking-wide">
+              {response.ticket_code}
             </span>
             <div className="bg-slate-900/90 border border-amber-500/30 rounded-lg p-3 text-left">
               <span className="text-[11px] font-bold text-amber-300 block mb-1">
-                📋 Specific Reason Held for Officer Review:
+                📋 Status & Reason for Review:
               </span>
               <p className="text-xs text-slate-200 leading-relaxed font-mono text-[11px]">
                 {response.ai_summary}
               </p>
             </div>
-            <span className="text-[11px] text-slate-400 block leading-relaxed max-w-md mx-auto">
-              No Complaint ID is generated yet. Once municipal officers review and approve this evidence, your official Complaint ID and downloadable PDF receipt will be activated in your account.
+            <span className="text-[11px] text-slate-300 block leading-relaxed max-w-md mx-auto">
+              Your grievance has been assigned Complaint ID <strong>{response.ticket_code}</strong> and is currently held for municipal admin review. It can be approved or rejected by the admin.
             </span>
           </div>
         ) : (
@@ -153,13 +153,27 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
               <span>Retry with Genuine Photos & Clear Description</span>
             </button>
           ) : isHeld ? (
-            <button
-              onClick={onClose}
-              className="sm:col-span-2 w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-amber-600/30"
-            >
-              <span>View in My Account (Pending Verification)</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <>
+              <button
+                onClick={onClose}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-sm"
+              >
+                <span>Close & View in Account</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (response.ticket_code) {
+                    onTrack(response.ticket_code);
+                  }
+                  onClose();
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-amber-600/30"
+              >
+                <span>Track Review Status</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </>
           ) : (
             <>
               <button

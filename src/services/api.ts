@@ -86,8 +86,8 @@ export const fetchLiveClusters = async (): Promise<Cluster[]> => {
           lat: t.lat,
           lng: t.lng,
           accuracy_m: t.accuracy_m,
-          ai_generated_score: t.ai_generated_score || 0.05,
-          ai_flag: t.ai_flag || false,
+          ai_generated_score: t.ai_generated_score ?? (c.status === 'under_verification' ? 0.5 : 0.05),
+          ai_flag: Boolean(t.ai_flag || c.status === 'under_verification'),
           severity_ai: t.severity_ai || 3,
           severity_final: t.severity_final || 3,
           danger: t.danger || {},
@@ -173,39 +173,7 @@ const scanImageForAiArtifacts = async (
       }
     }
 
-    // 2. Inspect exact pixel resolution footprints used by generative AI models
-    if (typeof Image !== 'undefined') {
-      const dimCheck = await new Promise<{ isAiSize: boolean; dims: string }>((resolve) => {
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.onload = () => {
-          URL.revokeObjectURL(url);
-          const w = img.naturalWidth;
-          const h = img.naturalHeight;
-          const isStandardAiSize =
-            (w === 1024 && h === 1024) || // DALL-E 3 / Midjourney standard square
-            (w === 1792 && h === 1024) || // DALL-E 3 landscape
-            (w === 1024 && h === 1792) || // DALL-E 3 portrait
-            (w === 512 && h === 512) ||   // SD 1.5 default
-            (w === 768 && h === 768) ||   // SD 2.1 default
-            (w === 1456 && h === 816) ||  // Midjourney 16:9
-            (w === 816 && h === 1456) ||  // Midjourney 9:16
-            (w === 1344 && h === 768) ||  // Flux 16:9
-            (w === 768 && h === 1344);   // Flux 9:16
-          resolve({ isAiSize: isStandardAiSize, dims: `${w}x${h}` });
-        };
-        img.onerror = () => resolve({ isAiSize: false, dims: '' });
-        img.src = url;
-      });
-
-      if (dimCheck.isAiSize) {
-        return {
-          isAi: true,
-          score: 0.92,
-          reason: `Exact generative AI canvas footprint detected (${dimCheck.dims}).`,
-        };
-      }
-    }
+    // 2. Metadata signature check complete (image dimension alone is not flagged as AI to prevent false positives on cropped photos)
   } catch (e) {
     console.warn('Binary AI scan error:', e);
   }
@@ -417,7 +385,7 @@ Reply ONLY with valid raw JSON in this exact structure:
 `;
 
   const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
-  const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
+  const candidateModels = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
   let lastError: any = null;
 
   for (const model of candidateModels) {
@@ -581,14 +549,15 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
       );
     } catch (err: any) {
       console.warn('Direct Gemini call failed or rate-limited:', err);
-      const isRateLimit = err?.message && (err.message.includes('429') || err.message.includes('Resource has been exhausted') || err.message.includes('quota'));
+      const errMsg = String(err?.message || '');
+      const isRateLimit = errMsg.includes('429') || errMsg.includes('Resource has been exhausted') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED');
       const isConnectionIssue = !isRateLimit && (
         err?.name === 'TypeError' ||
-        (err?.message && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('offline') || err.message.includes('Failed to fetch') || err.message.includes('timeout') || err.message.includes('getaddrinfo')))
+        errMsg.includes('fetch') || errMsg.includes('network') || errMsg.includes('offline') || errMsg.includes('Failed to fetch') || errMsg.includes('timeout') || errMsg.includes('getaddrinfo')
       );
 
       if (isConnectionIssue) {
-        // Requirement 2: Connection issue -> ask for 10sec retry!
+        // Temporary network drop -> ask for 10sec retry
         return {
           success: false,
           ticket_code: '',
@@ -615,13 +584,21 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         };
       }
 
-      // Requirement 3: Quota limit hit -> inform user AI is undergoing updates & hold for manual verification
-      aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
-      aiResult.summary = 'AI Model Undergoing Updates: Verification servers currently busy / undergoing updates. Visual evidence routed for manual municipal officer verification.';
-      aiResult.is_ai_generated = false;
-      aiResult.ai_generated_probability = 0; // 0% synthetic when model is overloaded!
-      aiResult.severity_ai = 0; // Severity set to 0 -> Officer will manually assign on review!
-      aiResult.eta_hours = 0;
+      if (isRateLimit) {
+        // True API Quota Limit Exceeded -> Forwarded for admin verification as model is undergoing updates
+        aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
+        aiResult.summary = 'Forwarded for admin verification as the model is undergoing updates.';
+        aiResult.is_ai_generated = false;
+        aiResult.ai_generated_probability = 0;
+        aiResult.severity_ai = 0;
+        aiResult.eta_hours = 0;
+      } else {
+        // Fallback heuristic evaluation if transient non-rate-limit exception
+        aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
+        aiResult.is_ai_generated = false;
+        aiResult.ai_generated_probability = 0.05;
+      }
+
       aiResult.danger = {
         risk_to_life: false,
         electrical_hazard: false,
@@ -645,13 +622,12 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
 
   // Calculate true AI-Generated / Synthetic Confidence
   const metadataScore = Math.max(wideScan.score, nearScan.score);
+  // Rely strictly on explicit boolean flags from Gemini or explicit positive rejection reasons
   const textIndicatesAi =
     !isModelOverloaded &&
     (aiResult.is_ai_generated === true ||
       aiResult.ai_watermark_detected === true ||
-      (aiResult.rejection_reason && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.rejection_reason)) ||
-      (aiResult.summary && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.summary)) ||
-      (payload.description && /synthetic|ai test|deepfake/i.test(payload.description)));
+      (Boolean(aiResult.rejection_reason) && /is ai[- ]?generated|contains synthetic|watermark detected|deepfake detected/i.test(aiResult.rejection_reason || '')));
 
   const geminiScore = isModelOverloaded
     ? 0
@@ -713,10 +689,44 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         health_hazard: false,
         worsens_over_time: false,
       },
-      ai_generated_score: aiGeneratedScore,
+      ai_generated_score: 0, // Score 0 indicates description/category failure: do not show AI authenticity bar!
       portal_verdict: 'rejected',
       context,
       message: rejectionMsg,
+    };
+  }
+
+  // TASK: If passed description + category + image check, check AI synthetic score:
+  // If AI verification is ABOVE 80% (> 0.80), directly reject!
+  const isDirectAiRejection = !isModelOverloaded && aiGeneratedScore > 0.80;
+  if (isDirectAiRejection) {
+    const syntheticPct = Math.round(aiGeneratedScore * 100);
+    const remarks = aiResult.ai_generated_explanation || aiResult.rejection_reason || 'Diffusion artifacts and generative deepfake textures detected.';
+    const aiRejectMsg = `Visual Forensics Rejected: Photographic evidence exceeded 80% synthetic threshold (${syntheticPct}% AI-generated detected). ${remarks} AI-generated and deepfake submissions are strictly disallowed.`;
+
+    return {
+      success: false,
+      ticket_code: 'REJECTED-SYNTHETIC-001',
+      cluster_id: '',
+      severity_final: 0,
+      eta_hours: 0,
+      status: 'rejected',
+      ai_summary: aiRejectMsg,
+      ai_formal_description: `Submission Disallowed: Deepfake / synthetic imagery detected (${syntheticPct}%).`,
+      danger: {
+        risk_to_life: false,
+        electrical_hazard: false,
+        open_manhole_or_pit: false,
+        blocks_emergency_access: false,
+        traffic_hazard: false,
+        water_or_flood_risk: false,
+        health_hazard: false,
+        worsens_over_time: false,
+      },
+      ai_generated_score: aiGeneratedScore, // Pass score > 80% so AI bar shows the direct rejection
+      portal_verdict: 'rejected',
+      context,
+      message: aiRejectMsg,
     };
   }
 
@@ -730,8 +740,8 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     uploadPhotoDirect(payload.near_photo, 'reports'),
   ]);
 
-  // Step 4: Context-based scoring boost (only if model evaluated severity)
-  const isHeld = isAiGenerated || isModelOverloaded;
+  // Step 4: Determine if held for review (between 30% and 80%, or model overloaded):
+  const isHeld = isModelOverloaded || (aiGeneratedScore >= 0.30 && aiGeneratedScore <= 0.80);
   const portalVerdict: 'accepted' | 'held' | 'rejected' = isHeld ? 'held' : 'accepted';
   const status: any = isHeld ? 'under_verification' : 'received';
 
@@ -746,26 +756,27 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
 
   // Construct explicit, transparent hold reason for both Citizen and Admin
   if (isHeld) {
-    if (aiResult.summary?.includes('undergoing updates') || aiResult.summary?.includes('Model Undergoing Updates')) {
-      aiResult.summary = 'AI Model Undergoing Updates: Verification servers currently busy / undergoing updates. Visual evidence routed for manual municipal officer verification.';
+    if (isModelOverloaded) {
+      aiResult.summary = 'Forwarded for admin verification as the model is undergoing updates.';
     } else {
       const syntheticPct = Math.round(aiGeneratedScore * 100);
-      const remarks = aiResult.ai_generated_explanation || aiResult.rejection_reason || aiResult.ai_watermark_description || 'Visual evidence exhibits high probability of synthetic/AI-generated textures or artifact';
-      aiResult.summary = `Gemini Vision Flagged: High synthetic probability (${syntheticPct}% AI-generated detected). Remarks: "${remarks}". Held for manual municipal officer verification.`;
+      const remarks = aiResult.ai_generated_explanation || aiResult.rejection_reason || aiResult.ai_watermark_description || 'Visual evidence exhibits synthetic generation markers';
+      aiResult.summary = `Gemini Vision Flagged: Moderate synthetic confidence (${syntheticPct}% AI-generated detected, between 30-80%). Remarks: "${remarks}". Held for manual municipal officer verification.`;
     }
   }
 
+  // Assign Complaint ID: Citizen receives their complaint ID, but it can be approved or rejected by admin!
   const ticketCode = getNextTicketCode();
   const etaHours = severityFinal === 5 ? 6 : severityFinal === 4 ? 24 : 48;
-  // If held for review, store with PENDING- prefix so DB uniqueness is preserved,
-  // but public complaint ID is withheld until Admin approves!
-  const dbTicketCode = isHeld ? `PENDING-${ticketCode}` : ticketCode;
-  const publicTicketCode = isHeld ? '' : ticketCode;
+  const dbTicketCode = ticketCode;
+  const publicTicketCode = ticketCode;
 
   // Step 5: Duplicate Detection (PostGIS 50m check or Haversine)
+  // CRITICAL: If a report is held for verification (isHeld), do NOT merge it into an existing active cluster!
+  // It MUST stand alone as an 'under_verification' cluster in the officer queue until approved.
   let matchingCluster: Cluster | undefined;
 
-  if (supabase) {
+  if (!isHeld && supabase) {
     try {
       const { data } = await supabase.rpc('find_nearby_cluster', {
         p_lat: payload.lat,
@@ -781,7 +792,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     }
   }
 
-  if (!matchingCluster) {
+  if (!isHeld && !matchingCluster) {
     matchingCluster = clustersData.find(
       (c) =>
         c.category === payload.category &&
@@ -915,13 +926,17 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   // Step 6: Direct insert into Supabase Tables (if connected)
   if (supabase) {
     try {
+      // NOTE: Database check constraints require severity BETWEEN 1 AND 5.
+      // If severityFinal is 0 (pending officer determination), use 3 as safe valid default for DB:
+      const dbSeverity = severityFinal >= 1 && severityFinal <= 5 ? severityFinal : 3;
+
       let { error: cErr } = await supabase.from('clusters').upsert({
         id: clusterId,
         category: payload.category,
         center: `POINT(${payload.lng} ${payload.lat})`,
         address: `Geotagged (${payload.lat.toFixed(4)}, ${payload.lng.toFixed(4)})`,
         locality: 'Urban District',
-        severity_current: severityFinal,
+        severity_current: dbSeverity,
         flag_count: matchingCluster ? matchingCluster.flag_count : 1,
         status: status,
         department_name: dept.name,
@@ -937,7 +952,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
           center: `SRID=4326;POINT(${payload.lng} ${payload.lat})`,
           address: `Geotagged (${payload.lat.toFixed(4)}, ${payload.lng.toFixed(4)})`,
           locality: 'Urban District',
-          severity_current: severityFinal,
+          severity_current: dbSeverity,
           flag_count: matchingCluster ? matchingCluster.flag_count : 1,
           status: status,
           department_name: dept.name,
@@ -965,8 +980,10 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         near_photo_url: nearUrl,
         lat: payload.lat,
         lng: payload.lng,
-        severity_ai: aiResult.severity_ai,
-        severity_final: severityFinal,
+        ai_generated_score: aiGeneratedScore,
+        ai_flag: isHeld,
+        severity_ai: aiResult.severity_ai >= 1 && aiResult.severity_ai <= 5 ? aiResult.severity_ai : dbSeverity,
+        severity_final: dbSeverity,
         danger: aiResult.danger,
         ai_summary: aiResult.summary,
         eta_hours: etaHours,
