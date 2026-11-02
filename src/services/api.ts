@@ -427,7 +427,6 @@ Reply ONLY with valid raw JSON in this exact structure:
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           contents: [
             {
