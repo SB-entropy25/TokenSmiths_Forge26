@@ -356,7 +356,7 @@ Reply ONLY with valid raw JSON in this exact structure:
 `;
 
   const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
-  const candidateModels = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+  const candidateModels = ['gemini-3.6-flash'];
   let lastError: any = null;
 
   for (const model of candidateModels) {
@@ -366,7 +366,7 @@ Reply ONLY with valid raw JSON in this exact structure:
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(9000),
+        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           contents: [
             {
@@ -520,8 +520,33 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         config.geminiApiKey
       );
     } catch (err: any) {
-      console.warn('Direct Gemini call failed or rate-limited; applying strict heuristic:', err);
-      aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
+      console.warn('Direct Gemini call failed or rate-limited; flagging for manual review:', err);
+      // Gemini timed out or errored — do NOT blindly auto-accept.
+      // Low confidence (0.30) sends this to the officer verification queue.
+      aiResult = {
+        is_valid_civic_issue: true,
+        detected_issue_type: payload.category,
+        matches_category: true,
+        description_consistent: true,
+        rejection_reason: '',
+        severity_ai: 3,
+        summary: 'AI vision verification unavailable (Gemini timeout/error). Held for manual officer review.',
+        eta_hours: 48,
+        confidence: 0.30,
+        danger: {
+          risk_to_life: false,
+          electrical_hazard: false,
+          open_manhole_or_pit: false,
+          blocks_emergency_access: false,
+          traffic_hazard: false,
+          water_or_flood_risk: false,
+          health_hazard: false,
+          worsens_over_time: false,
+        },
+        is_ai_generated: false,
+        ai_watermark_detected: false,
+        ai_generated_probability: 0,
+      };
     }
   } else {
     // Intelligent local fallback if no Gemini key entered yet

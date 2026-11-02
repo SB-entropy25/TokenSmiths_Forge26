@@ -91,7 +91,7 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     try {
       let isSuccess = false;
       let lastErrMsg = '';
-      const testModels = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+      const testModels = ['gemini-3.6-flash'];
 
       for (const m of testModels) {
         const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
