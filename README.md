@@ -53,7 +53,7 @@ The Officer Console at `/#/admin` is protected by a login form. For the hackatho
 | Field | Demo credential | Where it is configured |
 | :--- | :--- | :--- |
 | **Username** | `admin` | `VITE_ADMIN_USERNAME` in `.env` |
-| **Password** | `admin123` | `VITE_ADMIN_PASSWORD` in `.env` |
+| **Password** | `tokensmiths` | `VITE_ADMIN_PASSWORD` in `.env` |
 
 How it works:
 
