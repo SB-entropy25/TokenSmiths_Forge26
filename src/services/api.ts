@@ -638,37 +638,30 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   );
   const aiGeneratedScore = Number(Math.max(0, Math.min(1, combinedAiScore)).toFixed(2));
 
-  // TIER 1: If AI generation, watermark, or high synthetic probability detected, strictly enforce rejection
-  if (aiResult.is_ai_generated || aiResult.ai_watermark_detected || combinedAiScore >= 0.50) {
-    aiResult.is_valid_civic_issue = false;
-    aiResult.detected_issue_type = 'not_a_civic_issue';
-    if (!aiResult.rejection_reason || !/ai[- ]?generated|synthetic|watermark/i.test(aiResult.rejection_reason)) {
-      aiResult.rejection_reason = `AI-Generated Image Detected (${Math.round(aiGeneratedScore * 100)}% synthetic confidence): Submissions must depict genuine physical infrastructure damage taken with a real camera.`;
+  // Check if AI generation/synthetic image is detected
+  const isAiGenerated = Boolean(aiResult.is_ai_generated || aiResult.ai_watermark_detected || combinedAiScore >= 0.50);
+
+  // HARD REJECTIONS (Zero Admin Review Queue - Rejected Immediately):
+  // 1. Category Mismatch (e.g. selected "pothole" but photo depicts garbage, car, dog, etc.)
+  const isCategoryMismatch = aiResult.matches_category === false;
+  // 2. Description Mismatch (description contradicts photo or is spam/gibberish)
+  const isDescriptionMismatch = aiResult.description_consistent === false;
+  // 3. Non-Civic Subject (photo depicts pets, food, selfie, furniture, mountains, memes, etc. - NOT municipal damage)
+  const isNonCivicSubject = (!aiResult.is_valid_civic_issue && !isAiGenerated) || aiResult.detected_issue_type === 'not_a_civic_issue';
+
+  // HARD REJECTION TRIGGER: If category mismatch, description mismatch, or non-civic subject, reject outright!
+  if (isCategoryMismatch || isDescriptionMismatch || isNonCivicSubject) {
+    let rejectionMsg = aiResult.rejection_reason;
+    if (isCategoryMismatch) {
+      const detectedLabel = aiResult.detected_issue_type && aiResult.detected_issue_type !== 'not_a_civic_issue'
+        ? aiResult.detected_issue_type.replace('_', ' ')
+        : 'an unrelated subject';
+      rejectionMsg = `Category Mismatch: You selected "${payload.category.replace('_', ' ').toUpperCase()}", but the uploaded photo depicts ${detectedLabel}. Please select the matching category from the dropdown or upload matching photos.`;
+    } else if (isDescriptionMismatch) {
+      rejectionMsg = `Description Inconsistent: The submitted description does not match the physical condition visible in the photos. Please provide an accurate description of the visible hazard.`;
+    } else if (isNonCivicSubject) {
+      rejectionMsg = rejectionMsg || `Not a Municipal Civic Hazard: Uploaded photo does not depict real public infrastructure damage (roads, drainage, electrical, waste). Submissions showing private interiors, personal objects, animals, landscapes, or memes are directly rejected.`;
     }
-  }
-
-  // TIER 2: Category Relevance Check (Photo must match the selected category from dropdown)
-  if (aiResult.matches_category === false) {
-    aiResult.is_valid_civic_issue = false;
-    const detectedLabel = aiResult.detected_issue_type && aiResult.detected_issue_type !== 'not_a_civic_issue'
-      ? aiResult.detected_issue_type.replace('_', ' ')
-      : 'an unrelated subject';
-    aiResult.rejection_reason = `Category Mismatch: You selected "${payload.category.replace('_', ' ').toUpperCase()}", but the uploaded photo depicts ${detectedLabel}. Please select the matching category from the dropdown or upload matching photos.`;
-  }
-
-  // TIER 3: Description Consistency Check (Description must truthfully describe the photo)
-  if (aiResult.description_consistent === false) {
-    aiResult.is_valid_civic_issue = false;
-    if (!aiResult.rejection_reason || !/description/i.test(aiResult.rejection_reason)) {
-      aiResult.rejection_reason = `Description Inconsistent: The submitted description does not match the physical condition visible in the photos. Please provide an accurate description of the visible hazard.`;
-    }
-  }
-
-  // TIER 4: General Civic Hazard Check (Photo must show actual municipal infrastructure, not private objects/memes/landscapes)
-  if (!aiResult.is_valid_civic_issue || aiResult.detected_issue_type === 'not_a_civic_issue') {
-    const rejectionMsg =
-      aiResult.rejection_reason ||
-      `Not a Municipal Civic Hazard: Uploaded photo does not depict real public infrastructure damage (roads, drainage, electrical, waste). Submissions showing private interiors, personal objects, animals, landscapes, or memes cannot be processed.`;
 
     return {
       success: false,
@@ -678,13 +671,11 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
       eta_hours: 0,
       status: 'rejected',
       ai_summary: rejectionMsg,
-      ai_formal_description: textIndicatesAi
-        ? `Submission Disallowed: Synthetic AI-generated image or watermark detected (${Math.round(aiGeneratedScore * 100)}% Synthetic confidence). Digital fabrications are strictly rejected.`
-        : !aiResult.matches_category
+      ai_formal_description: isCategoryMismatch
         ? `Submission Rejected: Category mismatch. Selected: ${payload.category.replace('_', ' ').toUpperCase()}, Detected: ${aiResult.detected_issue_type.replace('_', ' ')}.`
-        : !aiResult.description_consistent
+        : isDescriptionMismatch
         ? `Submission Rejected: Description inconsistency. Text does not match photographic evidence.`
-        : `Submission Rejected by Portal AI: Visual evidence failed civic validity checks. Detected: ${aiResult.detected_issue_type.replace('_', ' ')}.`,
+        : `Submission Rejected by Portal AI: Evidence does not depict public infrastructure damage.`,
       danger: {
         risk_to_life: false,
         electrical_hazard: false,
