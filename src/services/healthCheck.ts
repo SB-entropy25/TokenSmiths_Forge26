@@ -80,7 +80,7 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     }
   }
 
-  // 3. Check Google Gemini Flash Vision API (single request, correct model name)
+  // 3. Check Google Gemini Flash Vision API
   const cleanKey = (config.geminiApiKey || '').trim().replace(/^["']|["']$/g, '');
   if (!cleanKey) {
     result.geminiAi = {
@@ -91,28 +91,38 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     try {
       let isSuccess = false;
       let lastErrMsg = '';
-      const testModels = ['gemini-3.6-flash'];
+      const testModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
 
       for (const m of testModels) {
-        const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
-        const res = await fetch(pingUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
-          }),
-        });
+        try {
+          const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
+          const res = await fetch(pingUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
+            }),
+          });
 
-      if (res.ok) {
-        result.geminiAi = {
-          status: 'connected',
-          message: `Gemini (${model}) active & verified with your key.`,
-        };
-      } else {
-        const errMsg = await res.text();
+          if (res.ok) {
+            isSuccess = true;
+            result.geminiAi = {
+              status: 'connected',
+              message: `Gemini (${m}) active & verified with your key.`,
+            };
+            break;
+          } else {
+            lastErrMsg = await res.text();
+          }
+        } catch (fetchErr: any) {
+          lastErrMsg = fetchErr.message;
+        }
+      }
+
+      if (!isSuccess) {
         result.geminiAi = {
           status: 'error',
-          message: `Gemini API key verification failed: ${errMsg.slice(0, 180)}`,
+          message: `Gemini API key verification failed: ${lastErrMsg.slice(0, 180)}`,
         };
       }
     } catch (e: any) {

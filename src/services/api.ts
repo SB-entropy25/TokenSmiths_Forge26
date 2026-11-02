@@ -417,7 +417,7 @@ Reply ONLY with valid raw JSON in this exact structure:
 `;
 
   const cleanKey = apiKey.trim().replace(/^["']|["']$/g, '');
-  const candidateModels = ['gemini-3.6-flash'];
+  const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
   let lastError: any = null;
 
   for (const model of candidateModels) {
@@ -427,8 +427,7 @@ Reply ONLY with valid raw JSON in this exact structure:
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({
+                body: JSON.stringify({
           contents: [
             {
               parts: [
