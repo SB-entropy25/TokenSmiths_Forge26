@@ -67,6 +67,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
   const [overrideSeverity, setOverrideSeverity] = useState<number>(0);
   const [overrideReason, setOverrideReason] = useState<string>('');
   const [proofPhotoUrl, setProofPhotoUrl] = useState<string>('');
+  const [selectedTimelineTicketId, setSelectedTimelineTicketId] = useState<string>('all');
+
+  const openClusterDetail = (cluster: Cluster) => {
+    setSelectedCluster(cluster);
+    setNewStatus(cluster.status);
+    setAssignDept(cluster.department_name || '');
+    setAdminNote('');
+    setOverrideSeverity(0);
+    setOverrideReason('');
+    setProofPhotoUrl(cluster.proof_photo_url || '');
+    setSelectedTimelineTicketId(
+      cluster.tickets && cluster.tickets.length === 1 ? cluster.tickets[0].id : 'all'
+    );
+  };
 
   // Verification Queue action state
   const [rejectReason, setRejectReason] = useState<string>('');
@@ -323,7 +337,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
 
                       <button
                         type="button"
-                        onClick={() => setSelectedCluster(cluster)}
+                        onClick={() => openClusterDetail(cluster)}
                         className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-all cursor-pointer"
                       >
                         <span>Manage</span>
@@ -524,7 +538,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                   {levelClusters.map((cluster) => (
                     <div
                       key={cluster.id}
-                      onClick={() => setSelectedCluster(cluster)}
+                      onClick={() => openClusterDetail(cluster)}
                       className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/50 rounded-xl p-3.5 cursor-pointer transition-all shadow-md space-y-2 group"
                     >
                       <div className="flex items-center justify-between gap-1 flex-wrap">
@@ -629,9 +643,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                       <span className="font-mono text-emerald-400 font-bold">
                         Report #{idx + 1}: {t.ticket_code} ({t.name})
                       </span>
-                      <span className="text-slate-400 text-[11px]">
-                        {new Date(t.created_at).toLocaleTimeString()}
-                      </span>
+                      <div className="flex items-center space-x-2">
+                        {selectedCluster.tickets.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTimelineTicketId(t.id)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                              selectedTimelineTicketId === t.id
+                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-emerald-300'
+                            }`}
+                          >
+                            {selectedTimelineTicketId === t.id ? '✓ Viewing Timeline' : 'View Timeline'}
+                          </button>
+                        )}
+                        <span className="text-slate-400 text-[11px]">
+                          {new Date(t.created_at).toLocaleTimeString()}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -714,6 +743,129 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                     ))}
                 </div>
               )}
+            </div>
+
+            {/* Complaint Timeline History Section with Multi-Ticket Selector */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-700/60 pb-2.5">
+                <div className="flex items-center space-x-2 text-white font-bold text-xs sm:text-sm">
+                  <Clock className="w-4 h-4 text-emerald-400" />
+                  <span>Complaint Timeline History</span>
+                </div>
+
+                {/* Complaint Selector (if multi at 1 location) */}
+                {selectedCluster.tickets && selectedCluster.tickets.length > 1 ? (
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] text-slate-400 font-semibold">Filter Report:</span>
+                    <select
+                      value={selectedTimelineTicketId}
+                      onChange={(e) => setSelectedTimelineTicketId(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 text-emerald-400 rounded-lg px-2.5 py-1 text-xs font-mono font-bold focus:ring-1 focus:ring-emerald-500"
+                    >
+                      <option value="all">All Reports at Location ({selectedCluster.tickets.length})</option>
+                      {selectedCluster.tickets.map((t, idx) => (
+                        <option key={t.id || idx} value={t.id}>
+                          Report #{idx + 1}: {t.ticket_code} ({t.name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  selectedCluster.tickets && selectedCluster.tickets.length === 1 && (
+                    <span className="font-mono text-emerald-400 text-xs font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
+                      {selectedCluster.tickets[0].ticket_code} ({selectedCluster.tickets[0].name})
+                    </span>
+                  )
+                )}
+              </div>
+
+              {/* Timeline Events List */}
+              {(() => {
+                const allEvents = selectedCluster.timeline || [];
+                let displayEvents = allEvents;
+
+                if (selectedTimelineTicketId !== 'all' && selectedCluster.tickets) {
+                  const activeTicket = selectedCluster.tickets.find((t) => t.id === selectedTimelineTicketId);
+                  if (activeTicket) {
+                    const currentCode = (activeTicket.ticket_code || '').trim().toUpperCase();
+                    displayEvents = allEvents.filter((item: any) => {
+                      if (item.ticket_id && item.ticket_id !== activeTicket.id) {
+                        return false;
+                      }
+                      const codeMatches = item.message?.match(/CP-\d{4}-\d{5,6}/gi);
+                      if (codeMatches && codeMatches.length > 0) {
+                        const isForThisTicket = codeMatches.some(
+                          (code: string) => code.toUpperCase() === currentCode
+                        );
+                        if (!isForThisTicket) return false;
+                      }
+                      return true;
+                    });
+                  }
+                }
+
+                if (displayEvents.length === 0) {
+                  return (
+                    <div className="p-3 text-center text-xs text-slate-500 italic bg-slate-900/40 rounded-lg">
+                      No recorded timeline updates for this specific complaint yet.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                    {displayEvents.map((item: any) => {
+                      const isEscalation = item.type === 'escalated';
+                      const isReopened = item.type === 'reopened';
+                      const isClosed = item.type === 'closed';
+
+                      return (
+                        <div key={item.id} className="flex items-start space-x-2.5 text-xs">
+                          <div
+                            className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                              isEscalation
+                                ? 'bg-amber-400 ring-4 ring-amber-400/30 animate-pulse'
+                                : isReopened
+                                ? 'bg-rose-400 ring-4 ring-rose-400/30'
+                                : isClosed
+                                ? 'bg-emerald-400 ring-4 ring-emerald-400/30'
+                                : 'bg-indigo-400 ring-4 ring-indigo-400/20'
+                            }`}
+                          />
+                          <div
+                            className={`flex-1 p-2.5 rounded-lg border ${
+                              isEscalation
+                                ? 'bg-amber-950/20 border-amber-500/40'
+                                : isReopened
+                                ? 'bg-rose-950/20 border-rose-500/40'
+                                : isClosed
+                                ? 'bg-emerald-950/20 border-emerald-500/40'
+                                : 'bg-slate-900/70 border-slate-750'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center mb-1 flex-wrap gap-1">
+                              <div className="flex items-center space-x-1.5">
+                                <span className={`font-bold text-[11px] ${isEscalation ? 'text-amber-300' : 'text-slate-300'}`}>
+                                  {item.actor || 'System'}
+                                </span>
+                                <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                                  {item.type.replace('_', ' ')}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-mono">
+                                {new Date(item.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            <p className={`text-xs ${isEscalation ? 'text-amber-100 font-medium' : 'text-slate-300'}`}>
+                              {item.message}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Admin Action Controls */}
