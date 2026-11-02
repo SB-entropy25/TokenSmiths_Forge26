@@ -617,37 +617,56 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
 
       // Requirement 3: Quota limit hit -> inform user AI is undergoing updates & hold for manual verification
       aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
-      aiResult.summary = 'AI Verification Model is currently undergoing updates. Your complaint has been submitted for manual municipal officer verification.';
-      aiResult.is_ai_generated = true;
-      aiResult.ai_generated_probability = 0.50;
+      aiResult.summary = 'AI Model Undergoing Updates: Verification servers currently busy / undergoing updates. Visual evidence routed for manual municipal officer verification.';
+      aiResult.is_ai_generated = false;
+      aiResult.ai_generated_probability = 0; // 0% synthetic when model is overloaded!
+      aiResult.severity_ai = 0; // Severity set to 0 -> Officer will manually assign on review!
+      aiResult.eta_hours = 0;
+      aiResult.danger = {
+        risk_to_life: false,
+        electrical_hazard: false,
+        open_manhole_or_pit: false,
+        blocks_emergency_access: false,
+        traffic_hazard: false,
+        water_or_flood_risk: false,
+        health_hazard: false,
+        worsens_over_time: false,
+      };
     }
   } else {
     // Intelligent local fallback if no Gemini key entered yet
     aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
   }
 
+  const isModelOverloaded = Boolean(
+    aiResult.summary?.includes('undergoing updates') ||
+    aiResult.summary?.includes('Model Undergoing Updates')
+  );
+
   // Calculate true AI-Generated / Synthetic Confidence
   const metadataScore = Math.max(wideScan.score, nearScan.score);
   const textIndicatesAi =
-    aiResult.is_ai_generated === true ||
-    aiResult.ai_watermark_detected === true ||
-    (aiResult.rejection_reason && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.rejection_reason)) ||
-    (aiResult.summary && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.summary)) ||
-    (payload.description && /synthetic|ai test|deepfake/i.test(payload.description));
+    !isModelOverloaded &&
+    (aiResult.is_ai_generated === true ||
+      aiResult.ai_watermark_detected === true ||
+      (aiResult.rejection_reason && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.rejection_reason)) ||
+      (aiResult.summary && /ai[- ]?generated|synthetic|watermark|logo|midjourney|dall[- ]?e|stable diffusion|flux|cgi|render|fake/i.test(aiResult.summary)) ||
+      (payload.description && /synthetic|ai test|deepfake/i.test(payload.description)));
 
-  const geminiScore = typeof aiResult.ai_generated_probability === 'number'
+  const geminiScore = isModelOverloaded
+    ? 0
+    : typeof aiResult.ai_generated_probability === 'number'
     ? aiResult.ai_generated_probability
-    : (textIndicatesAi ? 0.96 : 0.04);
+    : (textIndicatesAi ? 0.85 : 0.04);
 
-  const combinedAiScore = Math.max(
-    metadataScore,
-    geminiScore,
-    textIndicatesAi ? 0.96 : 0
-  );
-  const aiGeneratedScore = Number(Math.max(0, Math.min(1, combinedAiScore)).toFixed(2));
+  const combinedAiScore = isModelOverloaded
+    ? 0
+    : Math.max(metadataScore, geminiScore, textIndicatesAi ? 0.85 : 0);
 
-  // Check if AI generation/synthetic image is detected
-  const isAiGenerated = Boolean(aiResult.is_ai_generated || aiResult.ai_watermark_detected || combinedAiScore >= 0.50);
+  const aiGeneratedScore = isModelOverloaded ? 0 : Number(Math.max(0, Math.min(1, combinedAiScore)).toFixed(2));
+
+  // Check if AI generation/synthetic image is detected (never true if model was overloaded)
+  const isAiGenerated = !isModelOverloaded && Boolean(aiResult.is_ai_generated || aiResult.ai_watermark_detected || combinedAiScore >= 0.50);
 
   // HARD REJECTIONS (Zero Admin Review Queue - Rejected Immediately):
   // 1. Category Mismatch (e.g. selected "pothole" but photo depicts garbage, car, dog, etc.)
@@ -711,18 +730,19 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     uploadPhotoDirect(payload.near_photo, 'reports'),
   ]);
 
-  // Step 4: Context-based scoring boost (formula: final = min(5, s_ai + context))
-  let severityFinal = aiResult.severity_ai;
-  if (context.nearSchoolOrHospital && severityFinal < 5) severityFinal += 1;
-  if (context.rainForecast && (payload.category === 'water_leak' || payload.category === 'sewage_drain') && severityFinal < 5) {
-    severityFinal += 1;
-  }
-  severityFinal = Math.min(5, Math.max(1, severityFinal));
-
-  // If synthetic probability is 50% or higher, hold in verification queue
-  const isHeld = aiGeneratedScore >= 0.50;
+  // Step 4: Context-based scoring boost (only if model evaluated severity)
+  const isHeld = isAiGenerated || isModelOverloaded;
   const portalVerdict: 'accepted' | 'held' | 'rejected' = isHeld ? 'held' : 'accepted';
   const status: any = isHeld ? 'under_verification' : 'received';
+
+  let severityFinal = isModelOverloaded ? 0 : aiResult.severity_ai;
+  if (!isModelOverloaded && severityFinal > 0) {
+    if (context.nearSchoolOrHospital && severityFinal < 5) severityFinal += 1;
+    if (context.rainForecast && (payload.category === 'water_leak' || payload.category === 'sewage_drain') && severityFinal < 5) {
+      severityFinal += 1;
+    }
+    severityFinal = Math.min(5, Math.max(1, severityFinal));
+  }
 
   // Construct explicit, transparent hold reason for both Citizen and Admin
   if (isHeld) {
@@ -1386,7 +1406,7 @@ export const updateClusterAdmin = async (
   return clustersData.find((c) => c.id === clusterId) || null;
 };
 
-export const resolveVerificationQueue = async (ticketId: string, approve: boolean, reason: string) => {
+export const resolveVerificationQueue = async (ticketId: string, approve: boolean, reason: string, assignedSeverity?: number, assignedDepartment?: string) => {
   const supabase = getSupabaseClient();
   const cluster = clustersData.find((c) => c.tickets?.some((x) => x.id === ticketId));
   if (!cluster) return false;
@@ -1400,20 +1420,44 @@ export const resolveVerificationQueue = async (ticketId: string, approve: boolea
     officialTicketCode = officialTicketCode.replace('PENDING-', '');
   }
 
+  const finalSev = assignedSeverity && assignedSeverity >= 1 && assignedSeverity <= 5
+    ? assignedSeverity
+    : (cluster.severity_current > 0 ? cluster.severity_current : 3);
+
+  const etaHours = finalSev === 5 ? 6 : finalSev === 4 ? 24 : 48;
+  const deptName = assignedDepartment || cluster.department_name || 'Municipal Works';
+
   if (t) {
     t.ai_flag = false;
-    if (approve && officialTicketCode) {
-      t.ticket_code = officialTicketCode;
+    if (approve) {
+      if (officialTicketCode) t.ticket_code = officialTicketCode;
+      t.severity_final = finalSev;
+      t.eta_hours = etaHours;
     }
   }
+
   cluster.status = newStatus;
+  if (approve) {
+    cluster.severity_current = finalSev;
+    cluster.department_name = deptName;
+    cluster.eta_at = new Date(Date.now() + etaHours * 3600 * 1000).toISOString();
+  }
 
   if (supabase) {
     try {
-      await supabase.from('clusters').update({ status: newStatus }).eq('id', cluster.id);
+      const clusterUpdate: any = { status: newStatus };
+      if (approve) {
+        clusterUpdate.severity_current = finalSev;
+        clusterUpdate.department_name = deptName;
+        clusterUpdate.eta_at = cluster.eta_at;
+      }
+      await supabase.from('clusters').update(clusterUpdate).eq('id', cluster.id);
+
       const ticketUpdate: any = { ai_flag: false };
-      if (approve && officialTicketCode) {
-        ticketUpdate.ticket_code = officialTicketCode;
+      if (approve) {
+        if (officialTicketCode) ticketUpdate.ticket_code = officialTicketCode;
+        ticketUpdate.severity_final = finalSev;
+        ticketUpdate.eta_hours = etaHours;
       }
       await supabase.from('tickets').update(ticketUpdate).eq('id', ticketId);
 
@@ -1422,7 +1466,7 @@ export const resolveVerificationQueue = async (ticketId: string, approve: boolea
         ticket_id: ticketId,
         type: approve ? 'ai_checked' : 'closed',
         message: approve
-          ? `Officer approved held report: "${reason || 'Verified genuine by officer inspection'}".`
+          ? `Officer approved held report: Assigned Official Complaint ID ${officialTicketCode || t?.ticket_code}. Severity designated as Level ${finalSev}/5 (${deptName}, ${etaHours}h SLA). "${reason || 'Verified genuine by officer inspection'}".`
           : `Report rejected during verification: "${reason || 'Photo failed authenticity check'}".`,
         public: true,
         actor: 'Admin Verification',

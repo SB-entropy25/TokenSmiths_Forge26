@@ -84,6 +84,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
 
   // Verification Queue action state
   const [rejectReason, setRejectReason] = useState<string>('');
+  const [heldSeverityMap, setHeldSeverityMap] = useState<Record<string, number>>({});
+  const [heldDeptMap, setHeldDeptMap] = useState<Record<string, string>>({});
 
   const departments = getDepartments();
 
@@ -122,7 +124,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
   };
 
   const handleVerifyDecision = async (ticketId: string, approve: boolean) => {
-    await resolveVerificationQueue(ticketId, approve, rejectReason || (approve ? 'Verified genuine' : 'Failed authenticity test'));
+    const assignedSev = heldSeverityMap[ticketId];
+    const assignedDept = heldDeptMap[ticketId];
+    await resolveVerificationQueue(
+      ticketId,
+      approve,
+      rejectReason || (approve ? 'Verified genuine by municipal officer' : 'Failed authenticity test'),
+      assignedSev,
+      assignedDept
+    );
     setRejectReason('');
     await loadData();
     onRefresh();
@@ -474,27 +484,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                     </div>
 
                     {/* Officer Decision Bar */}
-                    <div className="pt-3 border-t border-slate-700/60 flex flex-col sm:flex-row items-center justify-between gap-3">
-                      <input
-                        type="text"
-                        placeholder="Officer review notes (optional for approval, required for rejection)..."
-                        value={rejectReason}
-                        onChange={(e) => setRejectReason(e.target.value)}
-                        className="w-full sm:w-1/2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-                      />
-                      <div className="flex space-x-2 w-full sm:w-auto">
-                        <button
-                          onClick={() => handleVerifyDecision(heldTicket.id, false)}
-                          className="flex-1 sm:flex-initial px-4 py-1.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-all"
-                        >
-                          Reject as Synthetic / Fake
-                        </button>
-                        <button
-                          onClick={() => handleVerifyDecision(heldTicket.id, true)}
-                          className="flex-1 sm:flex-initial px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-emerald-600/20"
-                        >
-                          Approve Genuine & Assign Official ID
-                        </button>
+                    <div className="pt-3 border-t border-slate-700/60 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                        <div>
+                          <label className="text-[10px] text-amber-300 uppercase font-bold block mb-1">
+                            Assign Severity Level (Officer Determination):
+                          </label>
+                          <select
+                            value={heldSeverityMap[heldTicket.id] || (cluster.severity_current > 0 ? cluster.severity_current : 3)}
+                            onChange={(e) => setHeldSeverityMap({ ...heldSeverityMap, [heldTicket.id]: Number(e.target.value) })}
+                            className="w-full bg-slate-950 border border-slate-700 text-amber-300 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          >
+                            <option value={5}>Level 5 - Critical Emergency Hazard (6h SLA)</option>
+                            <option value={4}>Level 4 - High Priority Danger (24h SLA)</option>
+                            <option value={3}>Level 3 - Standard Municipal Repair (48h SLA)</option>
+                            <option value={2}>Level 2 - Moderate Cosmetic Defect (72h SLA)</option>
+                            <option value={1}>Level 1 - Minor Non-Urgent Maintenance (72h SLA)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-emerald-400 uppercase font-bold block mb-1">
+                            Assign Responsible Department:
+                          </label>
+                          <select
+                            value={heldDeptMap[heldTicket.id] || cluster.department_name || departments[0]?.name || 'Solid Waste Management & Sanitation Board'}
+                            onChange={(e) => setHeldDeptMap({ ...heldDeptMap, [heldTicket.id]: e.target.value })}
+                            className="w-full bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          >
+                            {departments.map((d) => (
+                              <option key={d.id} value={d.name}>{d.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <input
+                          type="text"
+                          placeholder="Officer review notes (optional for approval, required for rejection)..."
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          className="w-full sm:flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                        />
+                        <div className="flex items-center space-x-2 w-full sm:w-auto">
+                          <button
+                            onClick={() => handleVerifyDecision(heldTicket.id, false)}
+                            className="flex-1 sm:flex-initial px-4 py-1.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-all"
+                          >
+                            Reject as Fake
+                          </button>
+                          <button
+                            onClick={() => handleVerifyDecision(heldTicket.id, true)}
+                            className="flex-1 sm:flex-initial px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-emerald-600/20"
+                          >
+                            Approve & Assign Severity / ID
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

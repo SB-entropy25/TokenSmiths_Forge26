@@ -24,14 +24,20 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
   etaHours = 24,
 }) => {
   // Score percentage (synthetic confidence) — show real score without forcing 95%!
-  const percentage = Math.round(Math.max(0, Math.min(1, score || 0)) * 100);
+    const isModelOverloaded =
+    aiSummary.includes('Model Undergoing Updates') ||
+    aiSummary.includes('undergoing updates') ||
+    aiSummary.includes('servers currently busy');
 
-  const isHeld = verdict === 'held' || percentage >= 50;
+  // Score percentage (synthetic confidence) — show real score without forcing 95%!
+  const percentage = isModelOverloaded ? 0 : Math.round(Math.max(0, Math.min(1, score || 0)) * 100);
+
+  const isHeld = verdict === 'held' || percentage >= 50 || isModelOverloaded;
   const isSuspicious = !isHeld && percentage >= 30;
   const isRejected = verdict === 'rejected';
   const isAuthentic = !isHeld && !isSuspicious && !isRejected;
 
-  const barColor = isHeld ? 'bg-red-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
+  const barColor = isModelOverloaded ? 'bg-amber-500/50' : isHeld ? 'bg-red-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
   const scoreBadgeColor = isHeld
     ? 'text-amber-300 bg-amber-500/20 border-amber-500/40'
     : isRejected
@@ -96,7 +102,9 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
             <span>AI Authenticity & Deepfake Detection Bar</span>
           </div>
           <span className="font-mono font-bold text-slate-300">
-            {100 - percentage}% Authentic ({percentage}% Synthetic Confidence)
+            {isModelOverloaded
+              ? 'Forensics Paused (Model Traffic Peak)'
+              : `${100 - percentage}% Authentic (${percentage}% Synthetic Confidence)`}
           </span>
         </div>
 
@@ -116,8 +124,10 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
         </div>
 
         <p className="text-[11px] text-slate-400">
-          {isHeld
-            ? '🚨 Potential synthetic artifact or model update hold. Placed in officer verification queue.'
+          {isModelOverloaded
+            ? '⏸️ Visual AI server reached capacity limits during filing. No synthetic anomalies flagged; pending manual officer inspection.'
+            : isHeld
+            ? '🚨 Potential synthetic artifact detected by Gemini. Placed in officer verification queue.'
             : isRejected
             ? '⚠️ Visual evidence failed civic validity checks. Does not depict public infrastructure.'
             : isSuspicious
@@ -130,12 +140,16 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700">
           <span className="text-[10px] text-slate-400 uppercase font-semibold block">Triage Severity</span>
-          <span className="text-base font-extrabold text-amber-400">Level {severity} / 5</span>
+          <span className="text-xs sm:text-sm font-extrabold text-amber-400">
+            {isModelOverloaded || severity === 0 ? 'Pending Officer Review' : `Level ${severity} / 5`}
+          </span>
         </div>
 
         <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700">
           <span className="text-[10px] text-slate-400 uppercase font-semibold block">Escalation SLA</span>
-          <span className="text-base font-extrabold text-white">{etaHours} Hours</span>
+          <span className="text-xs sm:text-sm font-extrabold text-white">
+            {isModelOverloaded || etaHours === 0 ? 'Set on Approval' : `${etaHours} Hours`}
+          </span>
         </div>
 
         <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700">
@@ -160,16 +174,24 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
             Active Hazard & Danger Aspects:
           </span>
           <div className="flex flex-wrap gap-1.5">
-            {Object.entries(danger)
-              .filter(([_, val]) => Boolean(val))
-              .map(([key]) => (
-                <span
-                  key={key}
-                  className="text-[10px] font-bold px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/30 rounded-md"
-                >
-                  ⚠️ {key.replace(/_/g, ' ').toUpperCase()}
-                </span>
-              ))}
+            {isModelOverloaded || severity === 0 ? (
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-800 text-slate-400 border border-slate-700 rounded-md">
+                🔍 Pending Officer Visual Inspection
+              </span>
+            ) : Object.entries(danger).filter(([_, val]) => Boolean(val)).length > 0 ? (
+              Object.entries(danger)
+                .filter(([_, val]) => Boolean(val))
+                .map(([key]) => (
+                  <span
+                    key={key}
+                    className="text-[10px] font-bold px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/30 rounded-md"
+                  >
+                    ⚠️ {key.replace(/_/g, ' ').toUpperCase()}
+                  </span>
+                ))
+            ) : (
+              <span className="text-[10px] text-slate-400">Standard non-critical repair</span>
+            )}
           </div>
         </div>
       )}
