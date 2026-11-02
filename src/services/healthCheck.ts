@@ -89,15 +89,19 @@ export const runFullSystemDiagnostics = async (): Promise<HealthStatus> => {
     };
   } else {
     try {
-      const model = 'gemini-3.6-flash';
-      const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
-      const res = await fetch(pingUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
-        }),
-      });
+      let isSuccess = false;
+      let lastErrMsg = '';
+      const testModels = ['gemini-3.6-flash'];
+
+      for (const m of testModels) {
+        const pingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanKey}`;
+        const res = await fetch(pingUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Respond with "PONG"' }] }],
+          }),
+        });
 
       if (res.ok) {
         result.geminiAi = {

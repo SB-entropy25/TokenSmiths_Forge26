@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldAlert, MapPin, Search, PlusCircle, ShieldCheck, Database, Sparkles } from 'lucide-react';
+import { Landmark, MapPin, Search, PlusCircle, ShieldCheck, Database, Sparkles } from 'lucide-react';
 
 interface HeaderProps {
   currentTab: string;
@@ -30,12 +30,12 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Logo & Platform Name -> Navigates to Landing Page */}
           <div className="flex items-center space-x-3 cursor-pointer" onClick={goHome}>
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <ShieldAlert className="w-6 h-6 text-white" />
+              <Landmark className="w-6 h-6 text-white" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
-                  CIVIC TRIAGE AI
+                  CIVIC TRIAGE PLATFORM
                 </span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-medium border border-emerald-500/20">
                   v2.0
