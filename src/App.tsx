@@ -70,11 +70,15 @@ export const App: React.FC = () => {
 
       try {
         const { error } = await supabase.from('clusters').select('id').limit(1);
+        if (error) {
+          console.warn('Supabase DB connectivity check returned error:', error);
+        }
         if (isMounted) {
           setIsDbConnected(!error);
         }
         await fetchLiveClusters();
       } catch (err) {
+        console.warn('Supabase DB connectivity check exception:', err);
         if (isMounted) setIsDbConnected(false);
       }
     };
