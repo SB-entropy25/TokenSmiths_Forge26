@@ -580,41 +580,13 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         config.geminiApiKey
       );
     } catch (err: any) {
-      console.error('Direct Gemini call failed:', err);
-      const isRateLimit = err?.message && (err.message.includes('429') || err.message.includes('Resource has been exhausted') || err.message.includes('quota'));
-      const isTimeout = err?.name === 'TimeoutError' || (err?.message && err.message.includes('timeout'));
-
-      const errorDetail = isRateLimit
-        ? 'AI Verification Busy: Google Gemini API rate limit reached. Please wait 10 seconds and re-submit.'
-        : isTimeout
-        ? 'AI Verification Timed Out: High-resolution photo upload took too long. Please re-submit.'
-        : `AI Verification Unavailable: ${err?.message || 'Verification service error'}. Please re-submit in a few seconds.`;
-
-      // STRICT PROTECTION: Never silently approve fake/unverified submissions on network error!
-      return {
-        success: false,
-        ticket_code: 'ERROR-VERIFY-001',
-        cluster_id: '',
-        severity_final: 0,
-        eta_hours: 0,
-        status: 'rejected',
-        ai_summary: errorDetail,
-        ai_formal_description: 'Submission Held: Multi-layer AI verification could not complete. For municipal data integrity, complaints cannot bypass visual inspection.',
-        danger: {
-          risk_to_life: false,
-          electrical_hazard: false,
-          open_manhole_or_pit: false,
-          blocks_emergency_access: false,
-          traffic_hazard: false,
-          water_or_flood_risk: false,
-          health_hazard: false,
-          worsens_over_time: false,
-        },
-        ai_generated_score: 0,
-        portal_verdict: 'rejected',
-        context,
-        message: errorDetail,
-      };
+      console.warn('Direct Gemini call failed or rate-limited; flagging for manual review:', err);
+      // Fallback: If Google Gemini hits 429 quota exhaustion, timeout, or network issue,
+      // run local heuristic analysis and hold the report for officer verification.
+      aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
+      aiResult.summary = 'AI Vision Busy (Google Gemini Free Tier Quota Exhausted). Submission held for manual municipal officer verification.';
+      aiResult.is_ai_generated = true;
+      aiResult.ai_generated_probability = 0.75;
     }
   } else {
     // Intelligent local fallback if no Gemini key entered yet
