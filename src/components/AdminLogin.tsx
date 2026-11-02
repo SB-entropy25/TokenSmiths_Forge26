@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, User, LogIn, AlertTriangle, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Lock, User, LogIn, AlertTriangle, ArrowLeft, ShieldCheck, Info } from 'lucide-react';
 import { adminLogin, isAdminConfigured } from '../config/adminAuth';
 
 interface AdminLoginProps {
@@ -35,6 +35,10 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess }) => {
           </div>
           <h1 className="text-xl font-extrabold text-white">Municipal Officer Login</h1>
           <p className="text-xs text-slate-400 mt-1">Authorized personnel only</p>
+          <div className="mt-3 p-2 rounded-lg bg-indigo-950/50 border border-indigo-500/30 text-[11px] text-indigo-300 flex items-center justify-center space-x-1.5">
+            <Info className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+            <span>Demo login details are mentioned in the README file of the submitted GitHub repository.</span>
+          </div>
         </div>
 
         {!configured && (
