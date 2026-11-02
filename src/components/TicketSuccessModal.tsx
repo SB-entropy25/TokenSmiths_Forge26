@@ -1,6 +1,6 @@
 import React from 'react';
 import { Download, ArrowRight, ShieldCheck, CheckCircle2, Ban, RotateCcw } from 'lucide-react';
-import { SubmissionResponse, Cluster } from '../types';
+import { SubmissionResponse } from '../types';
 import { generateTicketPdf } from '../utils/pdf';
 import { getClusters } from '../services/api';
 import { AiDiagnosticCard } from './AiDiagnosticCard';
@@ -20,8 +20,8 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
   const isHeld = response.status === 'under_verification' || response.portal_verdict === 'held';
 
   const handleDownloadPdf = () => {
-    if (isRejected) {
-      alert('Cannot download receipt for rejected submissions.');
+    if (isRejected || isHeld) {
+      alert('Cannot download receipt while grievance is pending officer approval.');
       return;
     }
     if (ticket) {
@@ -73,7 +73,7 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
             {isRejected
               ? 'Grievance Rejected by Portal AI'
               : isHeld
-              ? 'Grievance Under Officer Verification'
+              ? 'Grievance Pending Officer Approval'
               : 'Grievance Formally Accepted'}
           </h2>
 
@@ -81,13 +81,34 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
             {isRejected
               ? 'Our multimodal AI inspected the photos and description. The evidence did not match public infrastructure or municipal repair criteria.'
               : isHeld
-              ? 'Our image classifier flagged potential synthetic artifacts. The grievance is queued for manual officer review.'
+              ? 'Your complaint is queued for manual inspection by municipal officers. No Complaint ID is assigned yet.'
               : 'Multi-layer AI verification passed. Your complaint is registered in the municipal dispatch stream.'}
           </p>
         </div>
 
-        {/* Ticket ID Badge or Rejection Notice */}
-        {!isRejected ? (
+        {/* State Banner: Rejected vs Held (No Complaint ID) vs Accepted */}
+        {isRejected ? (
+          <div className="bg-red-950/30 border border-red-500/30 rounded-xl p-3.5 text-center">
+            <span className="text-xs font-bold text-red-400 uppercase tracking-wider block">
+              Submission Disallowed
+            </span>
+            <p className="text-xs text-slate-300 mt-1">
+              {response.message || response.ai_summary}
+            </p>
+          </div>
+        ) : isHeld ? (
+          <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-4 text-center shadow-inner space-y-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block">
+              Official Complaint ID
+            </span>
+            <span className="text-xl sm:text-2xl font-black font-mono text-amber-300 block tracking-wide">
+              PENDING FOR APPROVAL
+            </span>
+            <span className="text-xs text-slate-300 block leading-relaxed max-w-md mx-auto">
+              No Complaint ID is generated yet. Your report has been submitted to municipal officers for manual inspection. Once approved, an official Complaint ID and PDF receipt will be assigned to your account.
+            </span>
+          </div>
+        ) : (
           <div className="bg-slate-800/90 border border-slate-700 rounded-xl p-3.5 text-center shadow-inner">
             <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-bold mb-0.5">
               Official Ticket Reference ID
@@ -99,18 +120,9 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
               Use this code along with your mobile number to track live status and dispatch updates.
             </span>
           </div>
-        ) : (
-          <div className="bg-red-950/30 border border-red-500/30 rounded-xl p-3.5 text-center">
-            <span className="text-xs font-bold text-red-400 uppercase tracking-wider block">
-              Submission Disallowed
-            </span>
-            <p className="text-xs text-slate-300 mt-1">
-              {response.message || response.ai_summary}
-            </p>
-          </div>
         )}
 
-        {/* AI Diagnostic Multi-Level Card (Detection Bar + Description + Verdict) */}
+        {/* AI Diagnostic Multi-Level Card */}
         <AiDiagnosticCard
           score={response.ai_generated_score || 0.06}
           aiSummary={response.ai_summary}
@@ -132,6 +144,14 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
               <RotateCcw className="w-4 h-4" />
               <span>Retry with Genuine Photos & Clear Description</span>
             </button>
+          ) : isHeld ? (
+            <button
+              onClick={onClose}
+              className="sm:col-span-2 w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-amber-600/30"
+            >
+              <span>View in My Account (Pending Verification)</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           ) : (
             <>
               <button
@@ -144,7 +164,9 @@ export const TicketSuccessModal: React.FC<TicketSuccessModalProps> = ({ response
 
               <button
                 onClick={() => {
-                  onTrack(response.ticket_code);
+                  if (response.ticket_code) {
+                    onTrack(response.ticket_code);
+                  }
                   onClose();
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-emerald-600/30"

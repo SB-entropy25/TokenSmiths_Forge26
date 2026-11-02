@@ -119,7 +119,7 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
       case 'reopened':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">REOPENED BY CITIZEN</span>;
       case 'under_verification':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">AI VERIFICATION</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">PENDING APPROVAL</span>;
       default:
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-700 text-slate-300">{status}</span>;
     }
@@ -195,7 +195,11 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
             <div className="flex flex-col sm:flex-row justify-between sm:items-center pb-4 border-b border-slate-800 gap-3">
               <div>
                 <span className="text-xs uppercase text-slate-500 font-semibold block">Ticket Reference</span>
-                <h3 className="text-2xl font-mono font-extrabold text-white">{searchResult.ticket.ticket_code}</h3>
+                <h3 className="text-2xl font-mono font-extrabold text-white">
+                  {searchResult.cluster.status === 'under_verification' || searchResult.ticket.ticket_code?.startsWith('PENDING')
+                    ? 'PENDING OFFICER APPROVAL'
+                    : searchResult.ticket.ticket_code}
+                </h3>
                 <span className="text-xs text-slate-400">
                   Filed on {new Date(searchResult.ticket.created_at).toLocaleDateString()} at{' '}
                   {new Date(searchResult.ticket.created_at).toLocaleTimeString()}
@@ -209,6 +213,7 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
                     <span className="hidden sm:inline">ESCALATION ACTIVE</span>
                   </span>
                 )}
+                {searchResult.cluster.status !== 'under_verification' && !searchResult.ticket.ticket_code?.startsWith('PENDING') && (
                 <button
                   onClick={() => generateTicketPdf(searchResult.ticket, searchResult.cluster)}
                   className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center space-x-1"
@@ -217,6 +222,7 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
                   <FileText className="w-4 h-4 text-emerald-400" />
                   <span className="hidden sm:inline">PDF</span>
                 </button>
+              )}
               </div>
             </div>
 

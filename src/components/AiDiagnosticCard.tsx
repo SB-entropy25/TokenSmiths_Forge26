@@ -23,26 +23,19 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
   verdict = 'accepted',
   etaHours = 24,
 }) => {
-  // Score percentage (synthetic confidence)
-  // If verdict is rejected and summary indicates AI or synthetic, guarantee >= 95%
-  const indicatesAi =
-    score >= 0.5 ||
-    /ai[- ]?generated|synthetic|watermark|midjourney|dall[- ]?e|flux|stable diffusion|fake|space suit/i.test(aiSummary) ||
-    /ai[- ]?generated|synthetic|watermark|midjourney|dall[- ]?e|flux|stable diffusion|fake/i.test(formalDescription || '');
+  // Score percentage (synthetic confidence) — show real score without forcing 95%!
+  const percentage = Math.round(Math.max(0, Math.min(1, score || 0)) * 100);
 
-  const effectiveScore = indicatesAi ? Math.max(score, 0.95) : score;
-  const percentage = Math.round(effectiveScore * 100);
-
-  const isHeld = percentage >= 70 || verdict === 'held';
-  const isSuspicious = !isHeld && percentage >= 40;
+  const isHeld = verdict === 'held' || percentage >= 50;
+  const isSuspicious = !isHeld && percentage >= 30;
   const isRejected = verdict === 'rejected';
   const isAuthentic = !isHeld && !isSuspicious && !isRejected;
 
-  const barColor = isHeld || indicatesAi ? 'bg-red-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
-  const scoreBadgeColor = isHeld || indicatesAi
+  const barColor = isHeld ? 'bg-red-500' : isSuspicious ? 'bg-amber-500' : 'bg-emerald-500';
+  const scoreBadgeColor = isHeld
+    ? 'text-amber-300 bg-amber-500/20 border-amber-500/40'
+    : isRejected
     ? 'text-red-400 bg-red-500/20 border-red-500/40'
-    : isSuspicious
-    ? 'text-amber-400 bg-amber-500/20 border-amber-500/40'
     : 'text-emerald-400 bg-emerald-500/20 border-emerald-500/40';
 
   return (
@@ -71,7 +64,7 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
             </span>
             <span className="text-sm font-extrabold text-white">
               {isHeld
-                ? 'HELD FOR ADMIN VERIFICATION (High Synthetic Score)'
+                ? 'HELD FOR ADMIN VERIFICATION (Pending Approval)'
                 : verdict === 'rejected'
                 ? 'REJECTED BY PORTAL'
                 : 'ACCEPTED & DISPATCHED TO MUNICIPAL DEPT'}
@@ -81,7 +74,7 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
         <span
           className={`text-xs px-2.5 py-1 rounded-full font-bold border ${scoreBadgeColor}`}
         >
-          {isHeld ? 'Held (Queue)' : verdict === 'rejected' ? 'Rejected' : 'Verified Genuine'}
+          {isHeld ? 'Held for Review' : verdict === 'rejected' ? 'Rejected' : 'Verified Genuine'}
         </span>
       </div>
 
@@ -113,12 +106,10 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
         </div>
 
         <p className="text-[11px] text-slate-400">
-          {indicatesAi
-            ? '🚨 High probability of synthetic or AI-generated imagery. Upload disallowed by portal AI.'
+          {isHeld
+            ? '🚨 Potential synthetic artifact or model update hold. Placed in officer verification queue.'
             : isRejected
             ? '⚠️ Visual evidence failed civic validity checks. Does not depict public infrastructure.'
-            : isHeld
-            ? '🚨 High probability of synthetic or AI-generated artifact. Placed in officer verification queue.'
             : isSuspicious
             ? '⚠️ Mild visual compression detected. Proceeding with caution flag.'
             : '✓ EXIF metadata, lens curvature, and noise patterns match genuine smartphone camera capture.'}
@@ -177,7 +168,7 @@ export const AiDiagnosticCard: React.FC<AiDiagnosticCardProps> = ({
       <div className="bg-slate-800/40 border border-slate-700/80 rounded-xl p-3.5 space-y-1.5">
         <div className="flex items-center space-x-1.5 text-xs font-bold text-emerald-400">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Official Complaint Description Drafted by AI Model</span>
+          <span>{isHeld ? 'Submitted Grievance Summary' : 'Official Complaint Description'}</span>
         </div>
         <p className="text-xs text-slate-200 leading-relaxed font-sans">
           {formalDescription || aiSummary}

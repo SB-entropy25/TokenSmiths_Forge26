@@ -308,40 +308,61 @@ export const CitizenAuthCard: React.FC<CitizenAuthCardProps> = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
-                  {userComplaints.map(({ ticket, cluster }) => (
-                    <div
-                      key={ticket.id}
-                      onClick={() => onSelectTicket(ticket.ticket_code)}
-                      className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700 rounded-xl p-3.5 transition-all cursor-pointer hover:border-emerald-500/50 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-xs text-emerald-400">
-                          {ticket.ticket_code}
-                        </span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                          cluster.status === 'closed'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : cluster.status === 'rejected'
-                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        }`}>
-                          {cluster.status.replace('_', ' ')}
-                        </span>
-                      </div>
+                  {userComplaints.map(({ ticket, cluster }) => {
+                    const isPendingApproval = cluster.status === 'under_verification' || ticket.ticket_code?.startsWith('PENDING') || ticket.ai_flag;
+                    const displayCode = isPendingApproval ? 'PENDING APPROVAL' : ticket.ticket_code;
 
-                      <p className="text-xs text-slate-200 line-clamp-1">
-                        {ticket.description}
-                      </p>
+                    return (
+                      <div
+                        key={ticket.id}
+                        onClick={() => {
+                          if (!isPendingApproval) {
+                            onSelectTicket(ticket.ticket_code);
+                          }
+                        }}
+                        className={`bg-slate-800/80 hover:bg-slate-800 border rounded-xl p-3.5 transition-all space-y-2 ${
+                          isPendingApproval
+                            ? 'border-amber-500/40 cursor-default'
+                            : 'border-slate-700 cursor-pointer hover:border-emerald-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`font-mono font-bold text-xs ${isPendingApproval ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {displayCode}
+                          </span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                            isPendingApproval
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : cluster.status === 'closed'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : cluster.status === 'rejected'
+                              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          }`}>
+                            {isPendingApproval ? 'Pending Approval' : cluster.status.replace('_', ' ')}
+                          </span>
+                        </div>
 
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/60">
-                        <span>{new Date(ticket.created_at).toLocaleDateString()}</span>
-                        <span className="text-emerald-400 font-semibold flex items-center space-x-1">
-                          <span>Track Status</span>
-                          <ArrowRight className="w-3 h-3" />
-                        </span>
+                        <p className="text-xs text-slate-200 line-clamp-1">
+                          {ticket.description}
+                        </p>
+
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/60">
+                          <span>{new Date(ticket.created_at).toLocaleDateString()}</span>
+                          {isPendingApproval ? (
+                            <span className="text-amber-400 font-semibold text-[10px]">
+                              Awaiting Officer Approval (No ID yet)
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                              <span>Track Status</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

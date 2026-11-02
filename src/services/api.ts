@@ -580,13 +580,46 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
         config.geminiApiKey
       );
     } catch (err: any) {
-      console.warn('Direct Gemini call failed or rate-limited; flagging for manual review:', err);
-      // Fallback: If Google Gemini hits 429 quota exhaustion, timeout, or network issue,
-      // run local heuristic analysis and hold the report for officer verification.
+      console.warn('Direct Gemini call failed or rate-limited:', err);
+      const isRateLimit = err?.message && (err.message.includes('429') || err.message.includes('Resource has been exhausted') || err.message.includes('quota'));
+      const isConnectionIssue = !isRateLimit && (
+        err?.name === 'TypeError' ||
+        (err?.message && (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('offline') || err.message.includes('Failed to fetch') || err.message.includes('timeout') || err.message.includes('getaddrinfo')))
+      );
+
+      if (isConnectionIssue) {
+        // Requirement 2: Connection issue -> ask for 10sec retry!
+        return {
+          success: false,
+          ticket_code: '',
+          cluster_id: '',
+          severity_final: 0,
+          eta_hours: 0,
+          status: 'rejected',
+          ai_summary: 'AI Verification Connection Issue: Temporary network connection failure to AI model. Please wait 10 seconds and retry.',
+          ai_formal_description: 'Could not connect to visual inspection service. Please check your internet connection, wait 10 seconds, and submit again.',
+          danger: {
+            risk_to_life: false,
+            electrical_hazard: false,
+            open_manhole_or_pit: false,
+            blocks_emergency_access: false,
+            traffic_hazard: false,
+            water_or_flood_risk: false,
+            health_hazard: false,
+            worsens_over_time: false,
+          },
+          ai_generated_score: 0,
+          portal_verdict: 'rejected',
+          context,
+          message: 'AI Verification Connection Issue: Temporary network connection failure to AI model. Please wait 10 seconds and retry.',
+        };
+      }
+
+      // Requirement 3: Quota limit hit -> inform user AI is undergoing updates & hold for manual verification
       aiResult = getHeuristicAI(payload.category, payload.lat, payload.lng, payload.description);
-      aiResult.summary = 'AI Vision Busy (Google Gemini Free Tier Quota Exhausted). Submission held for manual municipal officer verification.';
+      aiResult.summary = 'AI Verification Model is currently undergoing updates. Your complaint has been submitted for manual municipal officer verification.';
       aiResult.is_ai_generated = true;
-      aiResult.ai_generated_probability = 0.75;
+      aiResult.ai_generated_probability = 0.50;
     }
   } else {
     // Intelligent local fallback if no Gemini key entered yet
@@ -686,8 +719,17 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
   }
   severityFinal = Math.min(5, Math.max(1, severityFinal));
 
+  // If synthetic probability is 50% or higher, hold in verification queue
+  const isHeld = aiGeneratedScore >= 0.50;
+  const portalVerdict: 'accepted' | 'held' | 'rejected' = isHeld ? 'held' : 'accepted';
+  const status: any = isHeld ? 'under_verification' : 'received';
+
   const ticketCode = getNextTicketCode();
   const etaHours = severityFinal === 5 ? 6 : severityFinal === 4 ? 24 : 48;
+  // If held for review, store with PENDING- prefix so DB uniqueness is preserved,
+  // but public complaint ID is withheld until Admin approves!
+  const dbTicketCode = isHeld ? `PENDING-${ticketCode}` : ticketCode;
+  const publicTicketCode = isHeld ? '' : ticketCode;
 
   // Step 5: Duplicate Detection (PostGIS 50m check or Haversine)
   let matchingCluster: Cluster | undefined;
@@ -718,10 +760,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     );
   }
 
-  // If synthetic probability is 50% or higher, hold in verification queue
-  const isHeld = aiGeneratedScore >= 0.50;
-  const portalVerdict: 'accepted' | 'held' | 'rejected' = isHeld ? 'held' : 'accepted';
-  const status: any = isHeld ? 'under_verification' : 'received';
+
 
   // Draft formal municipal complaint text
   const formalDescription = `Official Grievance Draft: Incident involving ${payload.category.replace(
@@ -746,7 +785,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
 
   const newTicket: Ticket = {
     id: ticketUuid,
-    ticket_code: ticketCode,
+    ticket_code: dbTicketCode,
     cluster_id: '',
     name: payload.name,
     email: payload.email,
@@ -928,7 +967,7 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
 
   return {
     success: true,
-    ticket_code: ticketCode,
+    ticket_code: publicTicketCode, // Empty when isHeld! No public complaint ID until Admin approves!
     cluster_id: clusterId,
     severity_final: severityFinal,
     eta_hours: etaHours,
@@ -937,7 +976,9 @@ export const submitCivicReport = async (payload: SubmissionPayload): Promise<Sub
     danger: aiResult.danger,
     ai_generated_score: aiGeneratedScore,
     portal_verdict: portalVerdict,
-    ai_formal_description: formalDescription,
+    ai_formal_description: isHeld
+      ? 'Complaint Held for Officer Review: Visual evidence has been submitted to municipal inspection officers. Official Complaint ID will be activated upon admin approval.'
+      : formalDescription,
     context: {
       nearSchoolOrHospital: context.nearSchoolOrHospital,
       rainForecast: context.rainForecast,
@@ -1340,12 +1381,30 @@ export const resolveVerificationQueue = async (ticketId: string, approve: boolea
   if (!cluster) return false;
 
   const t = cluster.tickets?.find((x) => x.id === ticketId);
+  const newStatus = approve ? 'received' : 'rejected';
+
+  // If approved and ticket had a pending code, assign official ticket code!
+  let officialTicketCode = t?.ticket_code || '';
+  if (approve && officialTicketCode.startsWith('PENDING-')) {
+    officialTicketCode = officialTicketCode.replace('PENDING-', '');
+  }
+
+  if (t) {
+    t.ai_flag = false;
+    if (approve && officialTicketCode) {
+      t.ticket_code = officialTicketCode;
+    }
+  }
+  cluster.status = newStatus;
 
   if (supabase) {
     try {
-      const newStatus = approve ? 'received' : 'rejected';
       await supabase.from('clusters').update({ status: newStatus }).eq('id', cluster.id);
-      await supabase.from('tickets').update({ ai_flag: false }).eq('id', ticketId);
+      const ticketUpdate: any = { ai_flag: false };
+      if (approve && officialTicketCode) {
+        ticketUpdate.ticket_code = officialTicketCode;
+      }
+      await supabase.from('tickets').update(ticketUpdate).eq('id', ticketId);
 
       await supabase.from('timeline_events').insert({
         cluster_id: cluster.id,

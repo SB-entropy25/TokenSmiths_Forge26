@@ -135,7 +135,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
   };
 
   const pendingClusters = clusters.filter(
-    (c) => c.status !== 'closed' && c.status !== 'rejected'
+    (c) => c.status !== 'closed' && c.status !== 'rejected' && c.status !== 'under_verification' && !c.tickets?.some((t) => t.ai_flag)
   );
 
   const under24hCount = pendingClusters.filter((c) => getClusterAgeDays(c.created_at) < 1).length;
@@ -398,7 +398,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                   <div key={cluster.id} className="bg-slate-800/60 border border-amber-500/30 rounded-xl p-5 space-y-4">
                     <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                       <div>
-                        <span className="text-xs font-mono text-emerald-400 font-bold">{heldTicket.ticket_code}</span>
+                        <span className="text-xs font-mono text-amber-400 font-bold">{heldTicket.ticket_code?.startsWith('PENDING') ? 'PENDING APPROVAL (No Official ID Yet)' : heldTicket.ticket_code}</span>
                         <h4 className="text-base font-bold text-white mt-0.5">{cluster.address}</h4>
                         <span className="text-xs text-slate-400">Citizen: {heldTicket.name} • Category: {cluster.category}</span>
                       </div>
@@ -487,7 +487,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                           onClick={() => handleVerifyDecision(heldTicket.id, true)}
                           className="flex-1 sm:flex-initial px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-emerald-600/20"
                         >
-                          Approve Genuine & Dispatch
+                          Approve Genuine & Assign Official ID
                         </button>
                       </div>
                     </div>
