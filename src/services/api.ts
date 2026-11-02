@@ -99,7 +99,11 @@ export const fetchLiveClusters = async (): Promise<Cluster[]> => {
         })),
         timeline: c.timeline_events || [],
         escalation_requested: Boolean(
-          c.last_escalated_at || (c.timeline_events || []).some((ev: any) => ev.type === 'escalated')
+          (c.timeline_events || []).some(
+            (ev: any) =>
+              ev.type === 'escalated' &&
+              (ev.actor?.toLowerCase().includes('citizen') || ev.message?.toLowerCase().includes('citizen escalation'))
+          )
         ),
       };
     });

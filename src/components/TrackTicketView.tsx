@@ -203,7 +203,7 @@ export const TrackTicketView: React.FC<TrackTicketViewProps> = ({ initialCode = 
               </div>
               <div className="flex items-center space-x-2">
                 {statusBadge(searchResult.cluster.status)}
-                {(searchResult.cluster.escalation_requested || searchResult.timeline?.some((t: any) => t.type === 'escalated')) && (
+                {(searchResult.timeline?.some((t: any) => t.type === 'escalated' && (t.actor?.toLowerCase().includes('citizen') || t.message?.toLowerCase().includes('citizen escalation')))) && (
                   <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center space-x-1 animate-pulse" title="Citizen escalation requested and flagged on Officer Console">
                     <Flame className="w-3.5 h-3.5 text-amber-400" />
                     <span className="hidden sm:inline">ESCALATION ACTIVE</span>

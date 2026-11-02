@@ -32,6 +32,29 @@ interface AdminDashboardProps {
   onRefresh: () => void;
 }
 
+// Helper: Check if a citizen explicitly requested escalation
+const isCitizenEscalated = (c: Cluster): boolean => {
+  if (!c || !c.timeline) return false;
+  return c.timeline.some(
+    (t) =>
+      t.type === 'escalated' &&
+      (t.actor?.toLowerCase().includes('citizen') || t.message?.toLowerCase().includes('citizen escalation'))
+  );
+};
+
+const getCitizenEscalationEvent = (c: Cluster) => {
+  if (!c || !c.timeline) return null;
+  return (
+    c.timeline
+      .filter(
+        (t) =>
+          t.type === 'escalated' &&
+          (t.actor?.toLowerCase().includes('citizen') || t.message?.toLowerCase().includes('citizen escalation'))
+      )
+      .slice(-1)[0] || null
+  );
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRefresh }) => {
   const [clusters, setClusters] = useState<Cluster[]>(getClusters());
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
@@ -107,9 +130,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
     return days >= 1 && days < 3;
   }).length;
   const overdue3DaysClusters = pendingClusters.filter((c) => getClusterAgeDays(c.created_at) >= 3);
-  const escalatedClusters = pendingClusters.filter(
-    (c) => c.escalation_requested || c.timeline?.some((t) => t.type === 'escalated')
-  );
+  const escalatedClusters = pendingClusters.filter(isCitizenEscalated);
 
   const handleBumpSeverity = async (cluster: Cluster) => {
     const nextSev = Math.min(5, cluster.severity_current + 1);
@@ -239,7 +260,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {overdue3DaysClusters.map((cluster) => {
               const ageDays = getClusterAgeDays(cluster.created_at);
-              const isEscalated = cluster.escalation_requested || cluster.timeline?.some((t) => t.type === 'escalated');
+              const isEscalated = isCitizenEscalated(cluster);
               return (
                 <div
                   key={cluster.id}
@@ -511,7 +532,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
                           {cluster.category.replace('_', ' ')}
                         </span>
                         <div className="flex items-center space-x-1">
-                          {(cluster.escalation_requested || cluster.timeline?.some((t) => t.type === 'escalated')) && (
+                          {isCitizenEscalated(cluster) && (
                             <span className="text-[10px] font-extrabold text-white bg-red-600 border border-red-400 px-1.5 py-0.5 rounded-md flex items-center space-x-0.5 animate-pulse" title="Citizen Escalation Requested">
                               <Flame className="w-3 h-3 text-amber-200" />
                               <span>ESCALATED</span>
@@ -580,20 +601,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentTab, onRe
               </button>
             </div>
 
-            {/* Citizen Escalation Alert Banner */}
-            {(selectedCluster.escalation_requested || selectedCluster.timeline?.some((t) => t.type === 'escalated')) && (
-              <div className="p-3.5 bg-red-950/60 border border-red-500/50 rounded-xl flex items-start space-x-3 text-xs">
-                <Flame className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5 animate-pulse" />
-                <div>
-                  <span className="font-extrabold text-red-300 block uppercase tracking-wider">
-                    🚨 Citizen Escalation Request Active
-                  </span>
-                  <p className="mt-1 text-slate-200">
-                    {selectedCluster.timeline?.filter((t) => t.type === 'escalated').slice(-1)[0]?.message || 'Citizen reported unexpected delay or escalating danger. Priority dispatch recommended.'}
-                  </p>
+            {/* Citizen Escalation Alert Banner (ONLY shown when a citizen explicitly clicked escalation) */}
+            {(() => {
+              const escEvent = getCitizenEscalationEvent(selectedCluster);
+              if (!escEvent) return null;
+              return (
+                <div className="p-3.5 bg-red-950/60 border border-red-500/50 rounded-xl flex items-start space-x-3 text-xs">
+                  <Flame className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5 animate-pulse" />
+                  <div>
+                    <span className="font-extrabold text-red-300 block uppercase tracking-wider">
+                      🚨 Citizen Escalation Request Active
+                    </span>
+                    <p className="mt-1 text-slate-200">
+                      {escEvent.message || 'Citizen reported unexpected delay or escalating danger. Priority dispatch recommended.'}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Photos Grid with Fallbacks & Direct Links */}
             {selectedCluster.tickets && selectedCluster.tickets.length > 0 && (
